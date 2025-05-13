@@ -54,7 +54,7 @@ export class MemStorage implements IStorage {
   private doctorIdCounter: number;
   private scheduleIdCounter: number;
   private appointmentIdCounter: number;
-  sessionStore: session.SessionStore;
+  sessionStore: any; // Using any type for sessionStore
 
   constructor() {
     this.usersMap = new Map();
@@ -119,7 +119,12 @@ export class MemStorage implements IStorage {
     const id = this.doctorIdCounter++;
     const doctor: Doctor = {
       id,
-      ...doctorData,
+      userId: doctorData.userId,
+      specialty: doctorData.specialty,
+      bio: doctorData.bio || null,
+      education: doctorData.education || null,
+      languages: doctorData.languages || null,
+      avatarUrl: doctorData.avatarUrl || null,
       rating: 0,
       reviewCount: 0
     };
@@ -138,7 +143,11 @@ export class MemStorage implements IStorage {
     const id = this.scheduleIdCounter++;
     const schedule: Schedule = {
       id,
-      ...scheduleData
+      doctorId: scheduleData.doctorId,
+      dayOfWeek: scheduleData.dayOfWeek,
+      startTime: scheduleData.startTime,
+      endTime: scheduleData.endTime,
+      isAvailable: scheduleData.isAvailable !== undefined ? scheduleData.isAvailable : true
     };
     this.schedulesMap.set(id, schedule);
     return schedule;
@@ -178,7 +187,14 @@ export class MemStorage implements IStorage {
     const now = new Date();
     const appointment: Appointment = {
       id,
-      ...appointmentData,
+      patientId: appointmentData.patientId,
+      doctorId: appointmentData.doctorId,
+      date: appointmentData.date,
+      startTime: appointmentData.startTime,
+      endTime: appointmentData.endTime,
+      reason: appointmentData.reason,
+      notes: appointmentData.notes || null,
+      status: appointmentData.status || 'pending',
       createdAt: now,
       updatedAt: now
     };
