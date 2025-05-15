@@ -478,6 +478,85 @@ export class MemStorage implements IStorage {
       efficiency: 89 // 89% efficiency
     };
   }
+
+  // Medical Record operations
+  async getPatientMedicalRecords(patientId: number): Promise<MedicalRecord[]> {
+    const records: MedicalRecord[] = [];
+    for (const record of this.medicalRecordsMap.values()) {
+      if (record.patientId === patientId) {
+        records.push(record);
+      }
+    }
+    // Sort by visit date, most recent first
+    return records.sort((a, b) => new Date(b.visitDate).getTime() - new Date(a.visitDate).getTime());
+  }
+
+  async getDoctorMedicalRecords(doctorId: number): Promise<MedicalRecord[]> {
+    const records: MedicalRecord[] = [];
+    for (const record of this.medicalRecordsMap.values()) {
+      if (record.doctorId === doctorId) {
+        records.push(record);
+      }
+    }
+    // Sort by visit date, most recent first
+    return records.sort((a, b) => new Date(b.visitDate).getTime() - new Date(a.visitDate).getTime());
+  }
+
+  async getMedicalRecord(id: number): Promise<MedicalRecord | undefined> {
+    return this.medicalRecordsMap.get(id);
+  }
+
+  async createMedicalRecord(recordData: InsertMedicalRecord): Promise<MedicalRecord> {
+    const now = new Date();
+    const record: MedicalRecord = {
+      id: this.medicalRecordIdCounter++,
+      ...recordData,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.medicalRecordsMap.set(record.id, record);
+    return record;
+  }
+
+  async updateMedicalRecord(id: number, recordData: Partial<InsertMedicalRecord>): Promise<MedicalRecord | undefined> {
+    const record = this.medicalRecordsMap.get(id);
+    if (!record) return undefined;
+
+    const updatedRecord: MedicalRecord = {
+      ...record,
+      ...recordData,
+      updatedAt: new Date()
+    };
+    this.medicalRecordsMap.set(id, updatedRecord);
+    return updatedRecord;
+  }
+
+  // Lab Results operations
+  async getMedicalRecordLabResults(medicalRecordId: number): Promise<LabResult[]> {
+    const results: LabResult[] = [];
+    for (const result of this.labResultsMap.values()) {
+      if (result.medicalRecordId === medicalRecordId) {
+        results.push(result);
+      }
+    }
+    // Sort by test date, most recent first
+    return results.sort((a, b) => new Date(b.testDate).getTime() - new Date(a.testDate).getTime());
+  }
+
+  async getLabResult(id: number): Promise<LabResult | undefined> {
+    return this.labResultsMap.get(id);
+  }
+
+  async createLabResult(resultData: InsertLabResult): Promise<LabResult> {
+    const now = new Date();
+    const result: LabResult = {
+      id: this.labResultIdCounter++,
+      ...resultData,
+      createdAt: now
+    };
+    this.labResultsMap.set(result.id, result);
+    return result;
+  }
 }
 
 export const storage = new MemStorage();
