@@ -1,6 +1,6 @@
 import { MainLayout } from "@/components/layout/main-layout";
 import { useAuth } from "@/hooks/use-auth";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Schedule, Doctor } from "@shared/schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -55,11 +55,20 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
+interface EditingSchedule {
+  id?: number;
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  isAvailable: boolean;
+  doctorId?: number;
+}
+
 export default function DoctorSchedule() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [showEditDialog, setShowEditDialog] = useState(false);
-  const [currentSchedule, setCurrentSchedule] = useState<Schedule | null>(null);
+  const [currentSchedule, setCurrentSchedule] = useState<EditingSchedule | null>(null);
 
   // Initialize form with empty values
   const form = useForm<FormValues>({
@@ -87,6 +96,36 @@ export default function DoctorSchedule() {
     enabled: !!doctorProfile,
   });
 
+  // Update or create schedule mutation
+  const scheduleMutation = useMutation({
+    mutationFn: async (data: { id?: number, schedule: any }) => {
+      if (data.id) {
+        // Update existing schedule
+        return apiRequest("PUT", `/api/schedules/${data.id}`, data.schedule);
+      } else {
+        // Create new schedule
+        return apiRequest("POST", "/api/schedules", data.schedule);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedules", doctorProfile?.id] });
+      setShowEditDialog(false);
+      toast({
+        title: currentSchedule?.id ? "Schedule updated" : "Schedule created",
+        description: currentSchedule?.id 
+          ? "Your schedule has been updated successfully" 
+          : "Your new schedule has been created successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: `Failed to ${currentSchedule?.id ? "update" : "create"} schedule: ${error.message}`,
+        variant: "destructive",
+      });
+    }
+  });
+
   // Organize schedules by day of week
   const schedulesByDay = daysOfWeek.map(day => {
     const daySchedule = schedules?.find(
@@ -99,61 +138,67 @@ export default function DoctorSchedule() {
   });
 
   const handleEditSchedule = (schedule: Schedule) => {
-    setCurrentSchedule(schedule);
+    setCurrentSchedule({
+      id: schedule.id,
+      dayOfWeek: schedule.dayOfWeek,
+      startTime: schedule.startTime,
+      endTime: schedule.endTime,
+      isAvailable: schedule.isAvailable === true,
+      doctorId: schedule.doctorId
+    });
+    
     form.reset({
       dayOfWeek: schedule.dayOfWeek.toString(),
       startTime: schedule.startTime.substring(0, 5),
       endTime: schedule.endTime.substring(0, 5),
-      isAvailable: schedule.isAvailable,
+      isAvailable: schedule.isAvailable === true,
     });
+    
     setShowEditDialog(true);
   };
 
   const handleCreateSchedule = (dayOfWeek: string) => {
-    setCurrentSchedule(undefined);
+    const parsedDay = parseInt(dayOfWeek);
+    setCurrentSchedule({
+      dayOfWeek: parsedDay,
+      startTime: "09:00:00",
+      endTime: "17:00:00",
+      isAvailable: true,
+      doctorId: doctorProfile?.id
+    });
+    
     form.reset({
       dayOfWeek: dayOfWeek,
       startTime: "09:00",
       endTime: "17:00",
       isAvailable: true,
     });
+    
     setShowEditDialog(true);
   };
 
-  const onSubmit = async (data: FormValues) => {
-    try {
-      if (currentSchedule) {
-        // Update existing schedule
-        await apiRequest("PUT", `/api/schedules/${currentSchedule.id}`, {
-          ...data,
-          dayOfWeek: parseInt(data.dayOfWeek),
-          doctorId: doctorProfile?.id,
-        });
-        toast({
-          title: "Schedule updated",
-          description: "Your schedule has been updated successfully",
-        });
-      } else {
-        // Create new schedule
-        await apiRequest("POST", "/api/schedules", {
-          ...data,
-          dayOfWeek: parseInt(data.dayOfWeek),
-          doctorId: doctorProfile?.id,
-        });
-        toast({
-          title: "Schedule created",
-          description: "Your new schedule has been created successfully",
-        });
-      }
-      queryClient.invalidateQueries({ queryKey: ["/api/schedules", doctorProfile?.id] });
-      setShowEditDialog(false);
-    } catch (error) {
+  const onSubmit = (data: FormValues) => {
+    if (!doctorProfile) {
       toast({
         title: "Error",
-        description: "Failed to save schedule. Please try again.",
+        description: "Doctor profile not found",
         variant: "destructive",
       });
+      return;
     }
+    
+    const scheduleData = {
+      dayOfWeek: parseInt(data.dayOfWeek),
+      startTime: `${data.startTime}:00`,
+      endTime: `${data.endTime}:00`,
+      isAvailable: data.isAvailable,
+      doctorId: doctorProfile.id
+    };
+    
+    scheduleMutation.mutate({
+      id: currentSchedule?.id,
+      schedule: scheduleData
+    });
   };
 
   return (
@@ -245,10 +290,10 @@ export default function DoctorSchedule() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {currentSchedule ? "Edit Schedule" : "Create Schedule"}
+              {currentSchedule?.id ? "Edit Schedule" : "Create Schedule"}
             </DialogTitle>
             <DialogDescription>
-              {currentSchedule
+              {currentSchedule?.id
                 ? "Update your availability for this day"
                 : "Set your availability for this day"}
             </DialogDescription>
@@ -350,7 +395,12 @@ export default function DoctorSchedule() {
                 >
                   Cancel
                 </Button>
-                <Button type="submit">Save</Button>
+                <Button 
+                  type="submit"
+                  disabled={scheduleMutation.isPending}
+                >
+                  {scheduleMutation.isPending ? "Saving..." : "Save"}
+                </Button>
               </DialogFooter>
             </form>
           </Form>
