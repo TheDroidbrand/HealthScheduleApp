@@ -48,6 +48,12 @@ export function Sidebar({ open, onClose }: SidebarProps) {
     { path: "/profile", label: "Profile", icon: <UserCog className="mr-3 h-5 w-5" /> },
   ];
 
+  const doctorLinks = [
+    { path: "/doctor", label: "Doctor Dashboard", icon: <LayoutDashboard className="mr-3 h-5 w-5" /> },
+    { path: "/doctor/appointments", label: "Manage Appointments", icon: <CalendarCheck className="mr-3 h-5 w-5" /> },
+    { path: "/doctor/schedule", label: "My Schedule", icon: <Clock className="mr-3 h-5 w-5" /> },
+  ];
+
   const adminLinks = [
     { path: "/admin", label: "Admin Dashboard", icon: <LayoutDashboard className="mr-3 h-5 w-5" /> },
     { path: "/admin/appointments", label: "Manage Appointments", icon: <CalendarCheck className="mr-3 h-5 w-5" /> },
@@ -98,6 +104,17 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                 </Link>
               ))}
             </div>
+          ) : user?.role === "doctor" ? (
+            <div className="space-y-1">
+              {doctorLinks.map((link) => (
+                <Link key={link.path} href={link.path}>
+                  <a className={sidebarItemClass(link.path)} onClick={isMobile ? onClose : undefined}>
+                    {link.icon}
+                    {link.label}
+                  </a>
+                </Link>
+              ))}
+            </div>
           ) : (
             <div className="space-y-1">
               {patientLinks.map((link) => (
@@ -113,26 +130,73 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           
           <div className="pt-4 mt-4 border-t border-gray-200">
             <div className="space-y-1">
-              {user?.role === "patient" ? (
-                <Link href="/admin">
-                  <a 
-                    className="flex items-center px-4 py-2.5 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100"
-                    onClick={isMobile ? onClose : undefined}
-                  >
-                    <User className="mr-3 h-5 w-5" />
-                    Switch to Admin View
-                  </a>
-                </Link>
-              ) : (
-                <Link href="/">
-                  <a 
-                    className="flex items-center px-4 py-2.5 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100"
-                    onClick={isMobile ? onClose : undefined}
-                  >
-                    <User className="mr-3 h-5 w-5" />
-                    Switch to Patient View
-                  </a>
-                </Link>
+              {user?.role === "patient" && (
+                <>
+                  <Link href="/admin">
+                    <a 
+                      className="flex items-center px-4 py-2.5 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100"
+                      onClick={isMobile ? onClose : undefined}
+                    >
+                      <User className="mr-3 h-5 w-5" />
+                      Switch to Admin View
+                    </a>
+                  </Link>
+                  <Link href="/doctor">
+                    <a 
+                      className="flex items-center px-4 py-2.5 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100"
+                      onClick={isMobile ? onClose : undefined}
+                    >
+                      <User className="mr-3 h-5 w-5" />
+                      Switch to Doctor View
+                    </a>
+                  </Link>
+                </>
+              )}
+              
+              {user?.role === "admin" && (
+                <>
+                  <Link href="/">
+                    <a 
+                      className="flex items-center px-4 py-2.5 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100"
+                      onClick={isMobile ? onClose : undefined}
+                    >
+                      <User className="mr-3 h-5 w-5" />
+                      Switch to Patient View
+                    </a>
+                  </Link>
+                  <Link href="/doctor">
+                    <a 
+                      className="flex items-center px-4 py-2.5 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100"
+                      onClick={isMobile ? onClose : undefined}
+                    >
+                      <User className="mr-3 h-5 w-5" />
+                      Switch to Doctor View
+                    </a>
+                  </Link>
+                </>
+              )}
+              
+              {user?.role === "doctor" && (
+                <>
+                  <Link href="/">
+                    <a 
+                      className="flex items-center px-4 py-2.5 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100"
+                      onClick={isMobile ? onClose : undefined}
+                    >
+                      <User className="mr-3 h-5 w-5" />
+                      Switch to Patient View
+                    </a>
+                  </Link>
+                  <Link href="/admin">
+                    <a 
+                      className="flex items-center px-4 py-2.5 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100"
+                      onClick={isMobile ? onClose : undefined}
+                    >
+                      <User className="mr-3 h-5 w-5" />
+                      Switch to Admin View
+                    </a>
+                  </Link>
+                </>
               )}
               
               <Button 
