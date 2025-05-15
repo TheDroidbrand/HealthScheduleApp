@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, time, date, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, time, date, timestamp, json } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -97,3 +97,63 @@ export type InsertSchedule = z.infer<typeof insertScheduleSchema>;
 
 export type Appointment = typeof appointments.$inferSelect;
 export type InsertAppointment = z.infer<typeof insertAppointmentSchema>;
+
+// Electronic Health Records (EHR)
+export const medicalRecords = pgTable("medical_records", {
+  id: serial("id").primaryKey(),
+  patientId: integer("patient_id").notNull().references(() => users.id),
+  doctorId: integer("doctor_id").notNull().references(() => doctors.id),
+  visitDate: date("visit_date").notNull(),
+  diagnosis: text("diagnosis").notNull(),
+  symptoms: text("symptoms"),
+  vitalSigns: json("vital_signs"),
+  medications: json("medications"),
+  allergies: text("allergies"),
+  notes: text("notes"),
+  attachments: json("attachments"),
+  followUpDate: date("follow_up_date"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertMedicalRecordSchema = createInsertSchema(medicalRecords).pick({
+  patientId: true,
+  doctorId: true,
+  visitDate: true,
+  diagnosis: true,
+  symptoms: true,
+  vitalSigns: true,
+  medications: true,
+  allergies: true,
+  notes: true,
+  attachments: true,
+  followUpDate: true,
+});
+
+export const labResults = pgTable("lab_results", {
+  id: serial("id").primaryKey(),
+  medicalRecordId: integer("medical_record_id").notNull().references(() => medicalRecords.id),
+  testName: text("test_name").notNull(),
+  testDate: date("test_date").notNull(),
+  results: json("results").notNull(),
+  normalRange: text("normal_range"),
+  interpretation: text("interpretation"),
+  performedBy: text("performed_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertLabResultSchema = createInsertSchema(labResults).pick({
+  medicalRecordId: true,
+  testName: true,
+  testDate: true,
+  results: true,
+  normalRange: true,
+  interpretation: true,
+  performedBy: true,
+});
+
+export type MedicalRecord = typeof medicalRecords.$inferSelect;
+export type InsertMedicalRecord = z.infer<typeof insertMedicalRecordSchema>;
+
+export type LabResult = typeof labResults.$inferSelect;
+export type InsertLabResult = z.infer<typeof insertLabResultSchema>;

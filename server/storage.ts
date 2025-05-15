@@ -1,7 +1,9 @@
 import { users, type User, type InsertUser, 
   doctors, type Doctor, type InsertDoctor,
   schedules, type Schedule, type InsertSchedule,
-  appointments, type Appointment, type InsertAppointment 
+  appointments, type Appointment, type InsertAppointment,
+  medicalRecords, type MedicalRecord, type InsertMedicalRecord,
+  labResults, type LabResult, type InsertLabResult
 } from "@shared/schema";
 import session from "express-session";
 import createMemoryStore from "memorystore";
@@ -33,6 +35,18 @@ export interface IStorage {
   updateAppointment(id: number, appointment: Partial<InsertAppointment>): Promise<Appointment | undefined>;
   deleteAppointment(id: number): Promise<void>;
   
+  // Medical Records operations
+  getPatientMedicalRecords(patientId: number): Promise<MedicalRecord[]>;
+  getDoctorMedicalRecords(doctorId: number): Promise<MedicalRecord[]>;
+  getMedicalRecord(id: number): Promise<MedicalRecord | undefined>;
+  createMedicalRecord(record: InsertMedicalRecord): Promise<MedicalRecord>;
+  updateMedicalRecord(id: number, record: Partial<InsertMedicalRecord>): Promise<MedicalRecord | undefined>;
+  
+  // Lab Results operations
+  getMedicalRecordLabResults(medicalRecordId: number): Promise<LabResult[]>;
+  getLabResult(id: number): Promise<LabResult | undefined>;
+  createLabResult(result: InsertLabResult): Promise<LabResult>;
+  
   // Stats for admin dashboard
   getSystemStats(): Promise<{
     totalAppointments: number;
@@ -50,10 +64,14 @@ export class MemStorage implements IStorage {
   private doctorsMap: Map<number, Doctor>;
   private schedulesMap: Map<number, Schedule>;
   private appointmentsMap: Map<number, Appointment>;
+  private medicalRecordsMap: Map<number, MedicalRecord>;
+  private labResultsMap: Map<number, LabResult>;
   private userIdCounter: number;
   private doctorIdCounter: number;
   private scheduleIdCounter: number;
   private appointmentIdCounter: number;
+  private medicalRecordIdCounter: number;
+  private labResultIdCounter: number;
   sessionStore: any; // Using any type for sessionStore
 
   constructor() {
@@ -61,10 +79,14 @@ export class MemStorage implements IStorage {
     this.doctorsMap = new Map();
     this.schedulesMap = new Map();
     this.appointmentsMap = new Map();
+    this.medicalRecordsMap = new Map();
+    this.labResultsMap = new Map();
     this.userIdCounter = 1;
     this.doctorIdCounter = 1;
     this.scheduleIdCounter = 1;
     this.appointmentIdCounter = 1;
+    this.medicalRecordIdCounter = 1;
+    this.labResultIdCounter = 1;
     this.sessionStore = new MemoryStore({
       checkPeriod: 86400000 // 24 hours
     });
