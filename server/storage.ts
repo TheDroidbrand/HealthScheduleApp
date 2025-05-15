@@ -70,12 +70,222 @@ export class MemStorage implements IStorage {
     });
 
     // Initialize with sample data
-    this.initializeData();
+    this.initializeData().catch(err => {
+      console.error("Failed to initialize data:", err);
+    });
   }
 
-  private initializeData() {
-    // This will be called from the constructor to seed the database with initial data
-    // but we won't actually implement it to avoid generating mock data
+  private async initializeData() {
+    // Create initial admin user
+    const adminPassword = await import('crypto').then(crypto => {
+      const { scrypt, randomBytes } = crypto;
+      const salt = randomBytes(16).toString("hex");
+      return new Promise<string>((resolve, reject) => {
+        scrypt("admin123", salt, 64, (err, derivedKey) => {
+          if (err) reject(err);
+          resolve(`${derivedKey.toString("hex")}.${salt}`);
+        });
+      });
+    });
+
+    const admin = {
+      id: this.userIdCounter++,
+      username: "admin",
+      password: adminPassword,
+      email: "admin@healthschedule.com",
+      fullName: "System Administrator",
+      role: "admin",
+      phone: null,
+      createdAt: new Date()
+    };
+    this.usersMap.set(admin.id, admin);
+
+    // Create some patient users
+    const patientPassword = await import('crypto').then(crypto => {
+      const { scrypt, randomBytes } = crypto;
+      const salt = randomBytes(16).toString("hex");
+      return new Promise<string>((resolve, reject) => {
+        scrypt("patient123", salt, 64, (err, derivedKey) => {
+          if (err) reject(err);
+          resolve(`${derivedKey.toString("hex")}.${salt}`);
+        });
+      });
+    });
+
+    // Patient 1
+    const patient1 = {
+      id: this.userIdCounter++,
+      username: "patient1",
+      password: patientPassword,
+      email: "patient1@example.com",
+      fullName: "Jane Smith",
+      role: "patient",
+      phone: "555-123-4567",
+      createdAt: new Date()
+    };
+    this.usersMap.set(patient1.id, patient1);
+
+    // Create doctor users
+    const doctorPassword = await import('crypto').then(crypto => {
+      const { scrypt, randomBytes } = crypto;
+      const salt = randomBytes(16).toString("hex");
+      return new Promise<string>((resolve, reject) => {
+        scrypt("doctor123", salt, 64, (err, derivedKey) => {
+          if (err) reject(err);
+          resolve(`${derivedKey.toString("hex")}.${salt}`);
+        });
+      });
+    });
+
+    // Doctor 1 user
+    const doctor1User = {
+      id: this.userIdCounter++,
+      username: "drjohnson",
+      password: doctorPassword,
+      email: "johnson@healthschedule.com",
+      fullName: "Dr. Robert Johnson",
+      role: "doctor",
+      phone: "555-987-6543",
+      createdAt: new Date()
+    };
+    this.usersMap.set(doctor1User.id, doctor1User);
+
+    // Doctor 2 user
+    const doctor2User = {
+      id: this.userIdCounter++,
+      username: "drchen",
+      password: doctorPassword,
+      email: "chen@healthschedule.com",
+      fullName: "Dr. Emily Chen",
+      role: "doctor",
+      phone: "555-456-7890",
+      createdAt: new Date()
+    };
+    this.usersMap.set(doctor2User.id, doctor2User);
+
+    // Create doctor profiles
+    const doctor1 = {
+      id: this.doctorIdCounter++,
+      userId: doctor1User.id,
+      specialty: "Cardiology",
+      bio: "Dr. Johnson is a board-certified cardiologist with over 15 years of experience in treating cardiovascular diseases.",
+      education: "MD, Harvard Medical School",
+      languages: "English, Spanish",
+      avatarUrl: null,
+      rating: 4.8,
+      reviewCount: 42
+    };
+    this.doctorsMap.set(doctor1.id, doctor1);
+
+    const doctor2 = {
+      id: this.doctorIdCounter++,
+      userId: doctor2User.id,
+      specialty: "Pediatrics",
+      bio: "Dr. Chen specializes in pediatric care and has been practicing for 10 years with a focus on newborn care and childhood development.",
+      education: "MD, Johns Hopkins University",
+      languages: "English, Mandarin",
+      avatarUrl: null,
+      rating: 4.9,
+      reviewCount: 56
+    };
+    this.doctorsMap.set(doctor2.id, doctor2);
+
+    // Create schedules for doctors
+    // Doctor 1 - Monday, Wednesday, Friday
+    const schedules = [
+      // Monday
+      {
+        id: this.scheduleIdCounter++,
+        doctorId: doctor1.id,
+        dayOfWeek: 1, // Monday
+        startTime: "09:00:00",
+        endTime: "17:00:00",
+        isAvailable: true
+      },
+      // Wednesday
+      {
+        id: this.scheduleIdCounter++,
+        doctorId: doctor1.id,
+        dayOfWeek: 3, // Wednesday
+        startTime: "09:00:00",
+        endTime: "17:00:00",
+        isAvailable: true
+      },
+      // Friday
+      {
+        id: this.scheduleIdCounter++,
+        doctorId: doctor1.id,
+        dayOfWeek: 5, // Friday
+        startTime: "09:00:00",
+        endTime: "15:00:00",
+        isAvailable: true
+      },
+      // Doctor 2 - Tuesday, Thursday
+      {
+        id: this.scheduleIdCounter++,
+        doctorId: doctor2.id,
+        dayOfWeek: 2, // Tuesday
+        startTime: "08:00:00",
+        endTime: "16:00:00",
+        isAvailable: true
+      },
+      {
+        id: this.scheduleIdCounter++,
+        doctorId: doctor2.id,
+        dayOfWeek: 4, // Thursday
+        startTime: "08:00:00",
+        endTime: "16:00:00",
+        isAvailable: true
+      }
+    ];
+
+    // Add all schedules
+    for (const schedule of schedules) {
+      this.schedulesMap.set(schedule.id, schedule);
+    }
+
+    // Create some sample appointments
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split('T')[0];
+
+    const nextWeek = new Date();
+    nextWeek.setDate(nextWeek.getDate() + 7);
+    const nextWeekStr = nextWeek.toISOString().split('T')[0];
+
+    const appointments = [
+      {
+        id: this.appointmentIdCounter++,
+        patientId: patient1.id,
+        doctorId: doctor1.id,
+        date: tomorrowStr,
+        startTime: "10:00:00",
+        endTime: "10:30:00",
+        reason: "Annual checkup",
+        notes: null,
+        status: "confirmed",
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        id: this.appointmentIdCounter++,
+        patientId: patient1.id,
+        doctorId: doctor2.id,
+        date: nextWeekStr,
+        startTime: "14:00:00",
+        endTime: "14:30:00",
+        reason: "Followup consultation",
+        notes: "Bring previous test results",
+        status: "pending",
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }
+    ];
+
+    // Add all appointments
+    for (const appointment of appointments) {
+      this.appointmentsMap.set(appointment.id, appointment);
+    }
   }
 
   // User operations

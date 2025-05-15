@@ -14,8 +14,15 @@ import { insertUserSchema } from "@shared/schema";
 
 // Extended schema for registration with additional validation
 const registerSchema = insertUserSchema.extend({
-  password: z.string().min(6, "Password must be at least 6 characters"),
+  password: z.string()
+    .min(6, "Password must be at least 6 characters")
+    .max(100, "Password is too long")
+    .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+    .regex(/[0-9]/, "Password must contain at least one number"),
   confirmPassword: z.string(),
+  email: z.string().email("Please enter a valid email address"),
+  fullName: z.string().min(3, "Full name must be at least 3 characters").max(100, "Full name is too long"),
+  phone: z.string().optional(),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords do not match",
   path: ["confirmPassword"],
@@ -33,6 +40,8 @@ type LoginValues = z.infer<typeof loginSchema>;
 export default function AuthPage() {
   const { user, loginMutation, registerMutation } = useAuth();
   const [authTab, setAuthTab] = useState<string>("login");
+  const [formError, setFormError] = useState<string | null>(null);
+  const [formSuccess, setFormSuccess] = useState<string | null>(null);
 
   // Register form
   const registerForm = useForm<RegisterValues>({
@@ -57,15 +66,64 @@ export default function AuthPage() {
     },
   });
 
+  // Reset error when tab changes
+  const handleTabChange = (value: string) => {
+    setAuthTab(value);
+    setFormError(null);
+    setFormSuccess(null);
+  };
+
   // Handle registration
   const onRegister = (values: RegisterValues) => {
+    setFormError(null);
+    setFormSuccess(null);
+    
     const { confirmPassword, ...userData } = values;
-    registerMutation.mutate(userData);
+    
+    // Show successful validation message before submitting
+    setFormSuccess("Validating your information...");
+    
+    registerMutation.mutate(userData, {
+      onError: (error) => {
+        setFormSuccess(null);
+        setFormError(error.message || "Registration failed. Please try again.");
+        
+        // If username already exists, focus on username field
+        if (error.message?.includes("Username already exists")) {
+          registerForm.setError("username", { 
+            type: "manual", 
+            message: "Username already exists" 
+          });
+          document.getElementById("register-username")?.focus();
+        }
+      },
+      onSuccess: () => {
+        setFormError(null);
+        setFormSuccess("Account created successfully! Redirecting...");
+      }
+    });
   };
 
   // Handle login
   const onLogin = (values: LoginValues) => {
-    loginMutation.mutate(values);
+    setFormError(null);
+    setFormSuccess(null);
+    
+    loginMutation.mutate(values, {
+      onError: (error) => {
+        setFormSuccess(null);
+        setFormError("Invalid username or password. Please try again.");
+        loginForm.setError("password", { 
+          type: "manual", 
+          message: "Incorrect credentials" 
+        });
+        document.getElementById("login-password")?.focus();
+      },
+      onSuccess: () => {
+        setFormError(null);
+        setFormSuccess("Login successful! Redirecting...");
+      }
+    });
   };
 
   // Redirect if user is already logged in
@@ -88,7 +146,29 @@ export default function AuthPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Tabs value={authTab} onValueChange={setAuthTab} className="w-full">
+            {formError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-md text-sm">
+                <p className="flex items-center">
+                  <svg className="h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  </svg>
+                  {formError}
+                </p>
+              </div>
+            )}
+            
+            {formSuccess && (
+              <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-md text-sm">
+                <p className="flex items-center">
+                  <svg className="h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                  {formSuccess}
+                </p>
+              </div>
+            )}
+            
+            <Tabs value={authTab} onValueChange={handleTabChange} className="w-full">
               <TabsList className="grid w-full grid-cols-2 mb-6">
                 <TabsTrigger value="login">Login</TabsTrigger>
                 <TabsTrigger value="register">Register</TabsTrigger>
@@ -129,6 +209,7 @@ export default function AuthPage() {
                             <div className="relative">
                               <Lock className="absolute left-3 top-2.5 h-5 w-5 text-muted-foreground" />
                               <Input
+                                id="login-password"
                                 type="password"
                                 placeholder="Enter your password"
                                 className="pl-10"
@@ -232,6 +313,7 @@ export default function AuthPage() {
                             <div className="relative">
                               <User className="absolute left-3 top-2.5 h-5 w-5 text-muted-foreground" />
                               <Input 
+                                id="register-username"
                                 placeholder="Choose a username" 
                                 className="pl-10" 
                                 {...field} 
