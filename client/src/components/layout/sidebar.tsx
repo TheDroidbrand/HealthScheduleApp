@@ -11,6 +11,7 @@ import {
   Settings, 
   LogOut,
   User,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMobile } from "@/hooks/use-mobile";
@@ -45,6 +46,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
     { path: "/", label: "Dashboard", icon: <LayoutDashboard className="mr-3 h-5 w-5" /> },
     { path: "/doctors", label: "Find Doctors", icon: <Users className="mr-3 h-5 w-5" /> },
     { path: "/appointments", label: "My Appointments", icon: <CalendarCheck className="mr-3 h-5 w-5" /> },
+    { path: "/medical-records", label: "Medical Records", icon: <FileText className="mr-3 h-5 w-5" /> },
     { path: "/profile", label: "Profile", icon: <UserCog className="mr-3 h-5 w-5" /> },
   ];
 
@@ -52,6 +54,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
     { path: "/doctor", label: "Doctor Dashboard", icon: <LayoutDashboard className="mr-3 h-5 w-5" /> },
     { path: "/doctor/appointments", label: "Manage Appointments", icon: <CalendarCheck className="mr-3 h-5 w-5" /> },
     { path: "/doctor/schedule", label: "My Schedule", icon: <Clock className="mr-3 h-5 w-5" /> },
+    { path: "/doctor/medical-records", label: "Medical Records", icon: <FileText className="mr-3 h-5 w-5" /> },
   ];
 
   const adminLinks = [

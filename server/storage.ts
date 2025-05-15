@@ -20,6 +20,7 @@ export interface IStorage {
   // Doctor operations
   getAllDoctors(): Promise<Doctor[]>;
   getDoctor(id: number): Promise<Doctor | undefined>;
+  getDoctorByUserId(userId: number): Promise<Doctor | undefined>;
   createDoctor(doctor: InsertDoctor): Promise<Doctor>;
   
   // Schedule operations
@@ -345,6 +346,15 @@ export class MemStorage implements IStorage {
 
   async getDoctor(id: number): Promise<Doctor | undefined> {
     return this.doctorsMap.get(id);
+  }
+  
+  async getDoctorByUserId(userId: number): Promise<Doctor | undefined> {
+    for (const doctor of this.doctorsMap.values()) {
+      if (doctor.userId === userId) {
+        return doctor;
+      }
+    }
+    return undefined;
   }
 
   async createDoctor(doctorData: InsertDoctor): Promise<Doctor> {

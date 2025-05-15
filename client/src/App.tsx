@@ -14,11 +14,13 @@ import PatientDashboard from "@/pages/patient/dashboard";
 import PatientDoctors from "@/pages/patient/doctors";
 import PatientAppointments from "@/pages/patient/appointments";
 import PatientProfile from "@/pages/patient/profile";
+import PatientMedicalRecords from "@/pages/patient/medical-records";
 
 // Doctor Pages
 import DoctorDashboard from "@/pages/doctor/dashboard";
 import DoctorAppointments from "@/pages/doctor/appointments";
 import DoctorSchedule from "@/pages/doctor/schedule";
+import DoctorMedicalRecords from "@/pages/doctor/medical-records";
 
 // Admin Pages
 import AdminDashboard from "@/pages/admin/dashboard";
@@ -71,11 +73,13 @@ function Router() {
       <ProtectedRoute path="/doctors" component={PatientDoctors} />
       <ProtectedRoute path="/appointments" component={PatientAppointments} />
       <ProtectedRoute path="/profile" component={PatientProfile} />
+      <ProtectedRoute path="/medical-records" component={PatientMedicalRecords} />
       
       {/* Doctor Routes */}
       <ProtectedRoute path="/doctor" component={DoctorDashboard} />
       <ProtectedRoute path="/doctor/appointments" component={DoctorAppointments} />
       <ProtectedRoute path="/doctor/schedule" component={DoctorSchedule} />
+      <ProtectedRoute path="/doctor/medical-records" component={DoctorMedicalRecords} />
       
       {/* Admin Routes */}
       <ProtectedRoute path="/admin" component={AdminDashboard} />
