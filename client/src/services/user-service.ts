@@ -4,15 +4,15 @@ import { FirebaseUser } from '@/types/firebase';
 
 export const userService = {
   async getDoctorPatients(doctorId: string): Promise<FirebaseUser[]> {
-    // First get all appointments for this doctor
-    const appointmentsQuery = query(
-      collection(db, 'appointments'),
+    // Get all doctor-patient relationships
+    const doctorPatientsQuery = query(
+      collection(db, 'doctorPatients'),
       where('doctorId', '==', doctorId)
     );
-    const appointmentsSnapshot = await getDocs(appointmentsQuery);
+    const doctorPatientsSnapshot = await getDocs(doctorPatientsQuery);
     
     // Get unique patient IDs
-    const patientIds = Array.from(new Set(appointmentsSnapshot.docs.map(doc => doc.data().patientId)));
+    const patientIds = Array.from(new Set(doctorPatientsSnapshot.docs.map(doc => doc.data().patientId)));
     
     // Get patient details for each unique patient ID
     const patients: FirebaseUser[] = [];

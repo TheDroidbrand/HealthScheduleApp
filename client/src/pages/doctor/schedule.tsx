@@ -35,6 +35,10 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { userService, scheduleService } from "@/lib/firebase-service";
+import { FirebaseDoctor, FirebaseSchedule } from "@/types/firebase";
+import { Switch } from "@/components/ui/switch";
+import { FormDescription } from "@/components/ui/form";
 
 const daysOfWeek = [
   { value: "1", label: "Monday" },
@@ -56,12 +60,12 @@ const formSchema = z.object({
 type FormValues = z.infer<typeof formSchema>;
 
 interface EditingSchedule {
-  id?: number;
+  id?: string;
   dayOfWeek: number;
   startTime: string;
   endTime: string;
   isAvailable: boolean;
-  doctorId?: number;
+  doctorId?: string;
 }
 
 export default function DoctorSchedule() {
@@ -82,33 +86,61 @@ export default function DoctorSchedule() {
   });
 
   // Fetch doctor profile
-  const { data: doctors } = useQuery<Doctor[]>({
-    queryKey: ["/api/doctors"],
-    enabled: !!user,
+  const { data: doctorProfile, isLoading: isLoadingProfile } = useQuery<FirebaseDoctor>({
+    queryKey: ["doctor", user?.id],
+    queryFn: () => userService.getDoctorByUserId(user?.id || ""),
+    enabled: !!user?.id,
   });
 
-  // Find current doctor's profile
-  const doctorProfile = doctors?.find(doctor => doctor.userId === user?.id);
+  // Create doctor profile if it doesn't exist
+  const createProfileMutation = useMutation({
+    mutationFn: async () => {
+      if (!user) throw new Error("No user found");
+      return userService.createDoctor({
+        userId: user.id,
+        fullName: user.fullName || "Dr. " + user.email?.split("@")[0] || "Unknown",
+        specialty: "General Medicine", // Default specialty
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["doctor", user?.id] });
+      toast({
+        title: "Profile created",
+        description: "Your doctor profile has been created successfully.",
+        variant: "default",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to create profile",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
 
   // Fetch doctor's schedules
-  const { data: schedules, isLoading: isLoadingSchedules } = useQuery<Schedule[]>({
-    queryKey: ["/api/schedules", doctorProfile?.id],
-    enabled: !!doctorProfile,
+  const { data: schedules, isLoading: isLoadingSchedules } = useQuery<FirebaseSchedule[]>({
+    queryKey: ["schedules", doctorProfile?.id],
+    queryFn: () => scheduleService.getDoctorSchedules(doctorProfile?.id || ""),
+    enabled: !!doctorProfile?.id,
   });
 
   // Update or create schedule mutation
   const scheduleMutation = useMutation({
-    mutationFn: async (data: { id?: number, schedule: any }) => {
+    mutationFn: async (data: { id?: string, schedule: any }) => {
       if (data.id) {
         // Update existing schedule
-        return apiRequest("PUT", `/api/schedules/${data.id}`, data.schedule);
+        return scheduleService.updateSchedule(data.id, data.schedule);
       } else {
         // Create new schedule
-        return apiRequest("POST", "/api/schedules", data.schedule);
+        return scheduleService.createSchedule(data.schedule);
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/schedules", doctorProfile?.id] });
+      queryClient.invalidateQueries({ queryKey: ["schedules", doctorProfile?.id] });
       setShowEditDialog(false);
       toast({
         title: currentSchedule?.id ? "Schedule updated" : "Schedule created",
@@ -137,7 +169,7 @@ export default function DoctorSchedule() {
     };
   });
 
-  const handleEditSchedule = (schedule: Schedule) => {
+  const handleEditSchedule = (schedule: FirebaseSchedule) => {
     setCurrentSchedule({
       id: schedule.id,
       dayOfWeek: schedule.dayOfWeek,
@@ -158,13 +190,18 @@ export default function DoctorSchedule() {
   };
 
   const handleCreateSchedule = (dayOfWeek: string) => {
+    if (!doctorProfile) {
+      createProfileMutation.mutate();
+      return;
+    }
+
     const parsedDay = parseInt(dayOfWeek);
     setCurrentSchedule({
       dayOfWeek: parsedDay,
       startTime: "09:00:00",
       endTime: "17:00:00",
       isAvailable: true,
-      doctorId: doctorProfile?.id
+      doctorId: doctorProfile.id
     });
     
     form.reset({
@@ -179,11 +216,7 @@ export default function DoctorSchedule() {
 
   const onSubmit = (data: FormValues) => {
     if (!doctorProfile) {
-      toast({
-        title: "Error",
-        description: "Doctor profile not found",
-        variant: "destructive",
-      });
+      createProfileMutation.mutate();
       return;
     }
     
@@ -192,7 +225,9 @@ export default function DoctorSchedule() {
       startTime: `${data.startTime}:00`,
       endTime: `${data.endTime}:00`,
       isAvailable: data.isAvailable,
-      doctorId: doctorProfile.id
+      doctorId: doctorProfile.id,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
     
     scheduleMutation.mutate({
@@ -200,6 +235,36 @@ export default function DoctorSchedule() {
       schedule: scheduleData
     });
   };
+
+  if (isLoadingProfile) {
+    return (
+      <MainLayout title="My Schedule">
+        <div className="flex justify-center items-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+        </div>
+      </MainLayout>
+    );
+  }
+
+  if (!doctorProfile) {
+    return (
+      <MainLayout title="My Schedule">
+        <Card>
+          <CardHeader>
+            <CardTitle>Create Your Profile</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-muted-foreground mb-4">
+              You need to create your doctor profile before you can set your schedule.
+            </p>
+            <Button onClick={() => createProfileMutation.mutate()}>
+              Create Profile
+            </Button>
+          </CardContent>
+        </Card>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout title="My Schedule">
@@ -287,15 +352,15 @@ export default function DoctorSchedule() {
 
       {/* Edit/Create Schedule Dialog */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>
-              {currentSchedule?.id ? "Edit Schedule" : "Create Schedule"}
+              {currentSchedule?.id ? "Edit Schedule" : "Add Schedule"}
             </DialogTitle>
             <DialogDescription>
-              {currentSchedule?.id
-                ? "Update your availability for this day"
-                : "Set your availability for this day"}
+              {currentSchedule?.id 
+                ? "Update your schedule for this day"
+                : "Set your schedule for this day"}
             </DialogDescription>
           </DialogHeader>
 
@@ -308,13 +373,13 @@ export default function DoctorSchedule() {
                   <FormItem>
                     <FormLabel>Day of Week</FormLabel>
                     <Select
-                      disabled
-                      value={field.value}
                       onValueChange={field.onChange}
+                      defaultValue={field.value}
+                      disabled={!!currentSchedule?.id}
                     >
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select day of week" />
+                          <SelectValue placeholder="Select a day" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -332,60 +397,52 @@ export default function DoctorSchedule() {
 
               <FormField
                 control={form.control}
-                name="isAvailable"
+                name="startTime"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Availability</FormLabel>
-                    <Select
-                      value={field.value ? "true" : "false"}
-                      onValueChange={(value) => field.onChange(value === "true")}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select availability" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="true">Available</SelectItem>
-                        <SelectItem value="false">Off</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <FormLabel>Start Time</FormLabel>
+                    <FormControl>
+                      <Input type="time" {...field} />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
 
-              {form.watch("isAvailable") && (
-                <>
-                  <FormField
-                    control={form.control}
-                    name="startTime"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Start Time</FormLabel>
-                        <FormControl>
-                          <Input type="time" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+              <FormField
+                control={form.control}
+                name="endTime"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>End Time</FormLabel>
+                    <FormControl>
+                      <Input type="time" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-                  <FormField
-                    control={form.control}
-                    name="endTime"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>End Time</FormLabel>
-                        <FormControl>
-                          <Input type="time" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </>
-              )}
+              <FormField
+                control={form.control}
+                name="isAvailable"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                    <div className="space-y-0.5">
+                      <FormLabel className="text-base">Available</FormLabel>
+                      <FormDescription>
+                        Set whether you are available on this day
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
 
               <DialogFooter>
                 <Button
@@ -395,11 +452,8 @@ export default function DoctorSchedule() {
                 >
                   Cancel
                 </Button>
-                <Button 
-                  type="submit"
-                  disabled={scheduleMutation.isPending}
-                >
-                  {scheduleMutation.isPending ? "Saving..." : "Save"}
+                <Button type="submit">
+                  {currentSchedule?.id ? "Update Schedule" : "Create Schedule"}
                 </Button>
               </DialogFooter>
             </form>

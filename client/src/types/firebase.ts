@@ -57,8 +57,8 @@ export interface FirebaseSchedule {
 
 export interface FirebaseMedicalRecord {
   id: string;
-  patientId: string;
   doctorId: string;
+  patientId: string;
   date: string;
   diagnosis: string;
   prescription: string | null;
@@ -72,7 +72,10 @@ export interface FirebaseLabResult {
   medicalRecordId: string;
   testName: string;
   testDate: string;
-  results: string;
-  notes: string | null;
+  results: Record<string, string> | string;
+  normalRange?: Record<string, string> | string;
+  interpretation?: string;
+  performedBy?: string;
   createdAt: string;
+  updatedAt: string;
 } 

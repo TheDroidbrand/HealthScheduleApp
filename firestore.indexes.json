@@ -4,34 +4,58 @@
       "collectionGroup": "appointments",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "patientId", "order": "ASCENDING" },
-        { "fieldPath": "date", "order": "DESCENDING" }
+        {
+          "fieldPath": "doctorId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "appointments",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "doctorId", "order": "ASCENDING" },
-        { "fieldPath": "date", "order": "DESCENDING" }
+        {
+          "fieldPath": "patientId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "medicalRecords",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "patientId", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
+        {
+          "fieldPath": "patientId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "schedules",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "doctorId", "order": "ASCENDING" },
-        { "fieldPath": "dayOfWeek", "order": "ASCENDING" }
+        {
+          "fieldPath": "doctorId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "dayOfWeek",
+          "order": "ASCENDING"
+        }
       ]
     }
   ],
   "fieldOverrides": []
-} 
+}

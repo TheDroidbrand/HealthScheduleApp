@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { appointmentService, userService } from "@/lib/firebase-service";
 import { AppointmentForm } from "@/components/appointments/appointment-form";
+import { CompleteAppointmentDialog } from "@/components/appointments/complete-appointment-dialog";
 import { format } from "date-fns";
 import { FirebaseAppointment, FirebaseDoctor } from "@/types/firebase";
 
@@ -39,6 +40,7 @@ export default function DoctorAppointments() {
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [showAppointmentModal, setShowAppointmentModal] = useState(false);
+  const [showCompleteDialog, setShowCompleteDialog] = useState(false);
   
   // Fetch doctor profile
   const { data: doctors = [] } = useQuery<FirebaseDoctor[]>({
@@ -177,8 +179,15 @@ export default function DoctorAppointments() {
   };
 
   const handleAppointmentClick = (appointmentId: string) => {
-    setSelectedAppointment(null);
-    setShowAppointmentModal(true);
+    const appointment = appointments.find(a => a.id === appointmentId);
+    if (appointment) {
+      setSelectedAppointment(appointment);
+      if (appointment.status === 'confirmed') {
+        setShowCompleteDialog(true);
+      } else {
+        setShowDetailsDialog(true);
+      }
+    }
   };
 
   return (
@@ -365,18 +374,27 @@ export default function DoctorAppointments() {
                                       </div>
                                     )}
                                     {appointment.status === "confirmed" && (
-                                      <Button
-                                        size="sm"
-                                        variant="destructive"
-                                        onClick={() =>
-                                          updateStatusMutation.mutate({
-                                            id: appointment.id,
-                                            status: "cancelled",
-                                          })
-                                        }
-                                      >
-                                        Cancel
-                                      </Button>
+                                      <>
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() => handleAppointmentClick(appointment.id)}
+                                        >
+                                          Complete
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="destructive"
+                                          onClick={() =>
+                                            updateStatusMutation.mutate({
+                                              id: appointment.id,
+                                              status: "cancelled",
+                                            })
+                                          }
+                                        >
+                                          Cancel
+                                        </Button>
+                                      </>
                                     )}
                                   </div>
                                 </div>
@@ -538,6 +556,19 @@ export default function DoctorAppointments() {
         </Card>
       </div>
       
+      {/* Complete Appointment Dialog */}
+      {selectedAppointment && (
+        <CompleteAppointmentDialog
+          appointment={selectedAppointment}
+          open={showCompleteDialog}
+          onOpenChange={setShowCompleteDialog}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ["appointments"] });
+            setShowCompleteDialog(false);
+          }}
+        />
+      )}
+
       {/* Appointment Details Dialog */}
       {selectedAppointment && (
         <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>

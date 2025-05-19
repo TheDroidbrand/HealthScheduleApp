@@ -1,7 +1,7 @@
 import { MainLayout } from "@/components/layout/main-layout";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { MedicalRecord, LabResult, InsertMedicalRecord, InsertLabResult } from "@shared/schema";
+import { MedicalRecord, LabResult } from "@shared/schema";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,7 +18,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { formatDate } from "@/lib/utils";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Accordion,
   AccordionContent,
@@ -55,7 +55,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { medicalRecordService, userService } from "@/services";
+import { medicalRecordService } from "@/services/medical-record-service";
+import { userService } from "@/services/user-service";
+import { FirebaseMedicalRecord, FirebaseLabResult } from "@/types/firebase";
+import { labResultService } from "@/services/lab-result-service";
 
 // Form schema for medical records
 const medicalRecordSchema = z.object({
@@ -68,7 +71,7 @@ const medicalRecordSchema = z.object({
 
 // Form schema for lab results
 const labResultSchema = z.object({
-  medicalRecordId: z.number(),
+  medicalRecordId: z.string(),
   testName: z.string().min(1, "Test name is required"),
   testDate: z.string(),
   results: z.string().min(1, "Results are required"),
@@ -84,22 +87,16 @@ export default function DoctorMedicalRecords() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
-  const [expandedRecordId, setExpandedRecordId] = useState<number | null>(null);
+  const [expandedRecordId, setExpandedRecordId] = useState<string | null>(null);
   const [showNewRecordDialog, setShowNewRecordDialog] = useState(false);
   const [showNewLabDialog, setShowNewLabDialog] = useState(false);
   const [activeTab, setActiveTab] = useState("all");
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
   
-  // Get doctor ID
-  const { data: doctorData } = useQuery({
-    queryKey: ["/api/doctors"],
-    enabled: !!user && user.role === "doctor",
-  });
-  
-  const doctorId = doctorData?.find(d => d.userId === user?.id)?.id;
+  const doctorId = user?.id;
   
   // Fetch medical records for this doctor
-  const { data: records, isLoading: isLoadingRecords } = useQuery<FirebaseMedicalRecord[]>({
+  const { data: records = [], isLoading: isLoadingRecords } = useQuery<FirebaseMedicalRecord[]>({
     queryKey: ["medical-records", doctorId],
     queryFn: () => medicalRecordService.getDoctorRecords(doctorId || ""),
     enabled: !!doctorId,
@@ -112,25 +109,38 @@ export default function DoctorMedicalRecords() {
     enabled: !!doctorId,
   });
   
+  // Create a map of patient IDs to their full names
+  const patientNameMap = useMemo(() => {
+    return patients.reduce((acc, patient) => {
+      acc[patient.id] = patient.fullName;
+      return acc;
+    }, {} as Record<string, string>);
+  }, [patients]);
+  
   // Filter records based on search query and active tab
-  const filteredRecords = records?.filter(record => {
-    const query = searchQuery.toLowerCase();
-    const matchesSearch = 
-      record.diagnosis.toLowerCase().includes(query) ||
-      (record.notes && record.notes.toLowerCase().includes(query));
-    
-    if (activeTab === "all") {
+  const filteredRecords = useMemo(() => {
+    return records.filter(record => {
+      const query = searchQuery.toLowerCase();
+      const patientName = patientNameMap[record.patientId]?.toLowerCase() || '';
+      const matchesSearch = 
+        record.diagnosis.toLowerCase().includes(query) ||
+        (record.notes && record.notes.toLowerCase().includes(query)) ||
+        patientName.includes(query);
+      
+      if (activeTab === "all") {
+        return matchesSearch;
+      } else if (activeTab === "patient" && selectedPatientId) {
+        return matchesSearch && record.patientId === selectedPatientId;
+      }
+      
       return matchesSearch;
-    } else if (activeTab === "patient" && selectedPatientId) {
-      return matchesSearch && record.patientId === selectedPatientId;
-    }
-    
-    return matchesSearch;
-  });
+    });
+  }, [records, searchQuery, activeTab, selectedPatientId, patientNameMap]);
   
   // Load lab results for a specific medical record when expanded
-  const { data: labResults, isLoading: isLoadingLabResults } = useQuery<LabResult[]>({
-    queryKey: ["/api/lab-results/medical-record", expandedRecordId],
+  const { data: labResults, isLoading: isLoadingLabResults } = useQuery<FirebaseLabResult[]>({
+    queryKey: ["lab-results", expandedRecordId],
+    queryFn: () => labResultService.getMedicalRecordLabResults(expandedRecordId || ""),
     enabled: expandedRecordId !== null,
   });
   
@@ -150,7 +160,7 @@ export default function DoctorMedicalRecords() {
   const labForm = useForm<LabResultFormValues>({
     resolver: zodResolver(labResultSchema),
     defaultValues: {
-      medicalRecordId: expandedRecordId || undefined,
+      medicalRecordId: expandedRecordId || "",
       testName: "",
       testDate: new Date().toISOString().split('T')[0],
       results: "",
@@ -170,8 +180,8 @@ export default function DoctorMedicalRecords() {
         patientId: data.patientId,
         date: data.date,
         diagnosis: data.diagnosis,
-        prescription: data.prescription,
-        notes: data.notes,
+        prescription: data.prescription || null,
+        notes: data.notes || null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -219,8 +229,7 @@ export default function DoctorMedicalRecords() {
         }
       }
       
-      const res = await apiRequest("POST", "/api/lab-results", formattedData);
-      return await res.json();
+      return await labResultService.createLabResult(formattedData);
     },
     onSuccess: () => {
       toast({
@@ -230,7 +239,7 @@ export default function DoctorMedicalRecords() {
       });
       setShowNewLabDialog(false);
       labForm.reset();
-      queryClient.invalidateQueries({ queryKey: ["/api/lab-results/medical-record", expandedRecordId] });
+      queryClient.invalidateQueries({ queryKey: ["lab-results", expandedRecordId] });
     },
     onError: (error: Error) => {
       toast({
@@ -317,7 +326,9 @@ export default function DoctorMedicalRecords() {
                       <FileText className="h-5 w-5 text-primary mr-2" />
                       <div>
                         <CardTitle className="text-lg">{record.diagnosis}</CardTitle>
-                        <CardDescription>Patient #{record.patientId}</CardDescription>
+                        <CardDescription>
+                          {patientNameMap[record.patientId] || `Patient #${record.patientId}`}
+                        </CardDescription>
                       </div>
                     </div>
                     <div className="flex items-center">
