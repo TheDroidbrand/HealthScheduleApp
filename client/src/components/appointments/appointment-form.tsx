@@ -22,9 +22,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
+import { appointmentService } from "@/lib/firebase-service";
+import { useAuth } from "@/hooks/use-auth";
 
 // Create a form schema with zod
 const formSchema = z.object({
@@ -38,12 +40,13 @@ const formSchema = z.object({
 type AppointmentFormValues = z.infer<typeof formSchema>;
 
 interface AppointmentFormProps {
-  doctorId: number;
+  doctorId: string;
   onSuccess?: () => void;
 }
 
 export function AppointmentForm({ doctorId, onSuccess }: AppointmentFormProps) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   const form = useForm<AppointmentFormValues>({
@@ -59,6 +62,10 @@ export function AppointmentForm({ doctorId, onSuccess }: AppointmentFormProps) {
 
   const appointmentMutation = useMutation({
     mutationFn: async (data: AppointmentFormValues) => {
+      if (!user) {
+        throw new Error("You must be logged in to schedule an appointment");
+      }
+
       // Extract hours and minutes from time
       const timeParts = data.time.split(':');
       const hours = parseInt(timeParts[0]);
@@ -72,19 +79,25 @@ export function AppointmentForm({ doctorId, onSuccess }: AppointmentFormProps) {
       const endMinutes = (minutes + 30) % 60;
       const endTimeStr = `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}:00`;
       
+      const now = new Date().toISOString();
       const appointmentData = {
         doctorId,
+        patientId: user.id,
         date: data.date,
+        time: startTimeStr,
         startTime: startTimeStr,
         endTime: endTimeStr,
+        type: "General Checkup",
         reason: data.reason,
         notes: data.notes,
-        status: "pending",
+        status: "pending" as const,
+        patientName: user.fullName || "Unknown Patient",
+        createdAt: now,
+        updatedAt: now,
       };
       
-      // Send the appointment data to the server
-      const res = await apiRequest("POST", "/api/appointments", appointmentData);
-      return await res.json();
+      // Create the appointment using Firebase service
+      return await appointmentService.createAppointment(appointmentData);
     },
     onSuccess: () => {
       toast({
@@ -92,7 +105,7 @@ export function AppointmentForm({ doctorId, onSuccess }: AppointmentFormProps) {
         description: "Your appointment has been scheduled successfully",
         variant: "default",
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
+      queryClient.invalidateQueries({ queryKey: ["appointments"] });
       if (onSuccess) onSuccess();
     },
     onError: (error) => {
@@ -162,83 +175,68 @@ export function AppointmentForm({ doctorId, onSuccess }: AppointmentFormProps) {
             </FormItem>
           )}
         />
-        
+
         <FormField
           control={form.control}
           name="reason"
           render={({ field }) => (
             <FormItem>
               <FormLabel>Reason for Visit</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select reason" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  <SelectItem value="checkup">Regular Checkup</SelectItem>
-                  <SelectItem value="follow-up">Follow-up Visit</SelectItem>
-                  <SelectItem value="urgent">Urgent Care</SelectItem>
-                  <SelectItem value="consultation">Consultation</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        
-        <FormField
-          control={form.control}
-          name="notes"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Additional Notes</FormLabel>
               <FormControl>
-                <Textarea
-                  placeholder="Describe your symptoms or any information the doctor should know"
-                  {...field}
-                />
+                <Textarea placeholder="Please describe your reason for visiting" {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
           )}
         />
-        
+
+        <FormField
+          control={form.control}
+          name="notes"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Additional Notes (Optional)</FormLabel>
+              <FormControl>
+                <Textarea placeholder="Any additional information you'd like to share" {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
         <FormField
           control={form.control}
           name="useInsurance"
           render={({ field }) => (
-            <FormItem className="flex flex-row items-start space-x-3 space-y-0 py-2">
+            <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
               <FormControl>
                 <Checkbox
                   checked={field.value}
                   onCheckedChange={field.onChange}
                 />
               </FormControl>
-              <FormLabel className="font-normal">
-                I'll be using insurance
-              </FormLabel>
-              <FormMessage />
+              <div className="space-y-1 leading-none">
+                <FormLabel>
+                  Use Insurance
+                </FormLabel>
+                <p className="text-sm text-gray-500">
+                  Check this if you want to use your insurance for this appointment
+                </p>
+              </div>
             </FormItem>
           )}
         />
-        
-        <div className="flex justify-end space-x-3 pt-3">
-          <Button type="button" variant="outline" onClick={onSuccess}>
-            Cancel
-          </Button>
-          <Button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Processing...
-              </>
-            ) : (
-              "Confirm Booking"
-            )}
-          </Button>
-        </div>
+
+        <Button type="submit" className="w-full" disabled={isSubmitting}>
+          {isSubmitting ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Scheduling...
+            </>
+          ) : (
+            "Schedule Appointment"
+          )}
+        </Button>
       </form>
     </Form>
   );

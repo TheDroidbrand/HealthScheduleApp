@@ -1,8 +1,8 @@
-import { Appointment } from "@shared/schema";
+import { FirebaseAppointment } from "@/types/firebase";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,24 +32,25 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Edit, MoreHorizontal, Trash2, Check, X, Clock } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { appointmentService } from "@/lib/firebase-service";
 
 interface AppointmentTableProps {
-  appointments?: Appointment[];
+  appointments?: FirebaseAppointment[];
   isLoading: boolean;
   isAdmin?: boolean;
 }
 
 export function AppointmentTable({ appointments, isLoading, isAdmin = false }: AppointmentTableProps) {
   const { toast } = useToast();
-  const [selectedAppointmentId, setSelectedAppointmentId] = useState<number | null>(null);
+  const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   const updateAppointmentMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: number; status: string }) => {
-      await apiRequest("PUT", `/api/appointments/${id}`, { status });
+    mutationFn: async ({ id, status }: { id: string; status: 'pending' | 'confirmed' | 'cancelled' | 'completed' }) => {
+      await appointmentService.updateAppointment(id, { status });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
+      queryClient.invalidateQueries({ queryKey: ["appointments"] });
       toast({
         title: "Appointment updated",
         description: "The appointment status has been updated successfully",
@@ -65,12 +66,12 @@ export function AppointmentTable({ appointments, isLoading, isAdmin = false }: A
   });
 
   const deleteAppointmentMutation = useMutation({
-    mutationFn: async (id: number) => {
-      await apiRequest("DELETE", `/api/appointments/${id}`);
+    mutationFn: async (id: string) => {
+      await appointmentService.updateAppointment(id, { status: "cancelled" });
     },
     onSuccess: () => {
       setShowDeleteDialog(false);
-      queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
+      queryClient.invalidateQueries({ queryKey: ["appointments"] });
       toast({
         title: "Appointment deleted",
         description: "The appointment has been deleted successfully",
@@ -85,11 +86,11 @@ export function AppointmentTable({ appointments, isLoading, isAdmin = false }: A
     },
   });
 
-  const handleStatusChange = (id: number, status: string) => {
+  const handleStatusChange = (id: string, status: 'pending' | 'confirmed' | 'cancelled' | 'completed') => {
     updateAppointmentMutation.mutate({ id, status });
   };
 
-  const handleDeleteClick = (id: number) => {
+  const handleDeleteClick = (id: string) => {
     setSelectedAppointmentId(id);
     setShowDeleteDialog(true);
   };

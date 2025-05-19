@@ -1,42 +1,49 @@
+import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
-import { Loader2 } from "lucide-react";
-import { Redirect, Route } from "wouter";
+import { useEffect } from "react";
 
-export function ProtectedRoute({
-  path,
-  component: Component,
-}: {
-  path: string;
-  component: () => React.JSX.Element;
-}) {
+interface ProtectedRouteProps {
+  children: React.ReactNode;
+  requiredRole?: "patient" | "doctor" | "admin";
+}
+
+export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
   const { user, isLoading } = useAuth();
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      setLocation("/auth");
+    } else if (!isLoading && user && requiredRole && user.role !== requiredRole) {
+      // Redirect to appropriate dashboard based on user role
+      switch (user.role) {
+        case "doctor":
+          setLocation("/doctor");
+          break;
+        case "admin":
+          setLocation("/admin");
+          break;
+        default:
+          setLocation("/patient");
+      }
+    }
+  }, [user, isLoading, requiredRole, setLocation]);
 
   if (isLoading) {
     return (
-      <Route path={path}>
-        <div className="flex items-center justify-center min-h-screen">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      </Route>
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
     );
   }
 
   if (!user) {
-    return (
-      <Route path={path}>
-        <Redirect to="/auth" />
-      </Route>
-    );
+    return null;
   }
 
-  // Admin routes should only be accessible by admins
-  if (path.startsWith("/admin") && user.role !== "admin") {
-    return (
-      <Route path={path}>
-        <Redirect to="/" />
-      </Route>
-    );
+  if (requiredRole && user.role !== requiredRole) {
+    return null;
   }
 
-  return <Route path={path} component={Component} />;
+  return <>{children}</>;
 }

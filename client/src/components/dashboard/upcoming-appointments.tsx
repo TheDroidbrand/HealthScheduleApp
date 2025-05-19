@@ -1,27 +1,48 @@
-import { Appointment } from "@shared/schema";
+import { FirebaseAppointment, FirebaseDoctor } from "@/types/firebase";
 import { formatDate, formatTime } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { CalendarIcon, MapPinIcon } from "lucide-react";
+import { appointmentService, userService } from "@/lib/firebase-service";
 
 interface UpcomingAppointmentsProps {
-  appointments?: Appointment[];
+  appointments?: FirebaseAppointment[];
   isLoading: boolean;
 }
 
 export function UpcomingAppointments({ appointments, isLoading }: UpcomingAppointmentsProps) {
   const { toast } = useToast();
   
+  // Fetch doctor information for each appointment
+  const { data: doctors = {} } = useQuery({
+    queryKey: ["appointment-doctors", appointments?.map(a => a.doctorId) || []],
+    queryFn: async () => {
+      const doctorData: Record<string, FirebaseDoctor> = {};
+      if (!appointments) return doctorData;
+      
+      for (const appointment of appointments) {
+        if (!doctorData[appointment.doctorId]) {
+          const doctor = await userService.getDoctorProfile(appointment.doctorId);
+          if (doctor) {
+            doctorData[appointment.doctorId] = doctor;
+          }
+        }
+      }
+      return doctorData;
+    },
+    enabled: !!appointments && appointments.length > 0,
+  });
+  
   const cancelMutation = useMutation({
-    mutationFn: async (id: number) => {
-      await apiRequest("DELETE", `/api/appointments/${id}`);
+    mutationFn: async (id: string) => {
+      await appointmentService.updateAppointment(id, { status: "cancelled" });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
+      queryClient.invalidateQueries({ queryKey: ["appointments"] });
       toast({
         title: "Appointment cancelled",
         description: "Your appointment has been successfully cancelled",
@@ -38,13 +59,13 @@ export function UpcomingAppointments({ appointments, isLoading }: UpcomingAppoin
   });
 
   const rescheduleMutation = useMutation({
-    mutationFn: async (id: number) => {
+    mutationFn: async (id: string) => {
       // This would typically show a modal for rescheduling
       // For now, we'll just update the status
-      await apiRequest("PUT", `/api/appointments/${id}`, { status: "pending" });
+      await appointmentService.updateAppointment(id, { status: "pending" });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
+      queryClient.invalidateQueries({ queryKey: ["appointments"] });
       toast({
         title: "Reschedule requested",
         description: "Your request to reschedule has been submitted",
@@ -97,52 +118,55 @@ export function UpcomingAppointments({ appointments, isLoading }: UpcomingAppoin
       <div className="p-5">
         {appointments && appointments.length > 0 ? (
           <div className="space-y-4">
-            {appointments.map((appointment) => (
-              <div key={appointment.id} className="flex flex-col sm:flex-row sm:items-center justify-between border rounded-lg p-4 hover:bg-slate-50 transition-colors">
-                <div className="flex items-center mb-3 sm:mb-0">
-                  <Avatar className="h-12 w-12 mr-4">
-                    <AvatarImage src="" alt="Doctor" />
-                    <AvatarFallback>DR</AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <div className="flex items-center">
-                      <h4 className="font-medium">Dr. Sarah Johnson</h4>
-                      <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                        {appointment.status === "confirmed" ? "Confirmed" : "Pending"}
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-500">Cardiology</p>
-                    <div className="flex items-center text-sm text-gray-700 mt-1">
-                      <CalendarIcon className="mr-2 h-4 w-4" /> 
-                      {formatDate(appointment.date)} at {formatTime(appointment.startTime)} - {formatTime(appointment.endTime)}
-                    </div>
-                    <div className="flex items-center text-sm text-gray-700 mt-1">
-                      <MapPinIcon className="mr-2 h-4 w-4" /> 
-                      City Medical Center, Building A, Room 305
+            {appointments.map((appointment) => {
+              const doctor = doctors[appointment.doctorId];
+              return (
+                <div key={appointment.id} className="flex flex-col sm:flex-row sm:items-center justify-between border rounded-lg p-4 hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center mb-3 sm:mb-0">
+                    <Avatar className="h-12 w-12 mr-4">
+                      <AvatarImage src="" alt="Doctor" />
+                      <AvatarFallback>DR</AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <div className="flex items-center">
+                        <h4 className="font-medium">Dr. {doctor?.fullName || 'Unknown Doctor'}</h4>
+                        <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                          {appointment.status === "confirmed" ? "Confirmed" : "Pending"}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-500">{doctor?.specialty || 'Not specified'}</p>
+                      <div className="flex items-center text-sm text-gray-700 mt-1">
+                        <CalendarIcon className="mr-2 h-4 w-4" /> 
+                        {formatDate(appointment.date)} at {formatTime(appointment.startTime)} - {formatTime(appointment.endTime)}
+                      </div>
+                      <div className="flex items-center text-sm text-gray-700 mt-1">
+                        <MapPinIcon className="mr-2 h-4 w-4" /> 
+                        City Medical Center, Building A, Room 305
+                      </div>
                     </div>
                   </div>
+                  <div className="flex space-x-2 self-end sm:self-center">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => rescheduleMutation.mutate(appointment.id)}
+                      disabled={rescheduleMutation.isPending}
+                    >
+                      Reschedule
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-red-500 border-red-300 hover:bg-red-50 hover:text-red-600"
+                      onClick={() => cancelMutation.mutate(appointment.id)}
+                      disabled={cancelMutation.isPending}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex space-x-2 self-end sm:self-center">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => rescheduleMutation.mutate(appointment.id)}
-                    disabled={rescheduleMutation.isPending}
-                  >
-                    Reschedule
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-red-500 border-red-300 hover:bg-red-50 hover:text-red-600"
-                    onClick={() => cancelMutation.mutate(appointment.id)}
-                    disabled={cancelMutation.isPending}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="text-center py-6">

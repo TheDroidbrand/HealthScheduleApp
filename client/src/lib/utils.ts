@@ -5,23 +5,27 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function formatDate(dateString: string): string {
+export function formatDate(dateString: string | undefined | null): string {
+  if (!dateString) return '';
+  
   const date = new Date(dateString);
   return date.toLocaleDateString('en-US', {
-    month: 'short',
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
     day: 'numeric',
-    year: 'numeric'
   });
 }
 
-export function formatTime(timeString: string): string {
+export function formatTime(timeString: string | undefined | null): string {
+  if (!timeString) return '';
+  
   // Convert 24-hour time (HH:MM:SS) to 12-hour format (HH:MM AM/PM)
   const [hours, minutes] = timeString.split(':');
   const hoursNum = parseInt(hours, 10);
   const period = hoursNum >= 12 ? 'PM' : 'AM';
-  const hours12 = hoursNum % 12 || 12;
-  
-  return `${hours12}:${minutes} ${period}`;
+  const displayHours = hoursNum % 12 || 12;
+  return `${displayHours}:${minutes} ${period}`;
 }
 
 export function getInitials(name: string): string {

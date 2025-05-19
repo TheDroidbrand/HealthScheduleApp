@@ -48,18 +48,22 @@ import { z } from "zod";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { medicalRecordService, userService } from "@/services";
 
 // Form schema for medical records
 const medicalRecordSchema = z.object({
-  patientId: z.number(),
+  patientId: z.string(),
+  date: z.string(),
   diagnosis: z.string().min(1, "Diagnosis is required"),
-  visitDate: z.string(),
-  symptoms: z.string().optional(),
-  vitalSigns: z.string().optional(),
-  medications: z.string().optional(),
-  allergies: z.string().optional(),
+  prescription: z.string().optional(),
   notes: z.string().optional(),
-  followUpDate: z.string().optional(),
 });
 
 // Form schema for lab results
@@ -84,7 +88,7 @@ export default function DoctorMedicalRecords() {
   const [showNewRecordDialog, setShowNewRecordDialog] = useState(false);
   const [showNewLabDialog, setShowNewLabDialog] = useState(false);
   const [activeTab, setActiveTab] = useState("all");
-  const [selectedPatientId, setSelectedPatientId] = useState<number | null>(null);
+  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
   
   // Get doctor ID
   const { data: doctorData } = useQuery({
@@ -95,27 +99,24 @@ export default function DoctorMedicalRecords() {
   const doctorId = doctorData?.find(d => d.userId === user?.id)?.id;
   
   // Fetch medical records for this doctor
-  const { data: records, isLoading: isLoadingRecords } = useQuery<MedicalRecord[]>({
-    queryKey: ["/api/medical-records/doctor", doctorId],
+  const { data: records, isLoading: isLoadingRecords } = useQuery<FirebaseMedicalRecord[]>({
+    queryKey: ["medical-records", doctorId],
+    queryFn: () => medicalRecordService.getDoctorRecords(doctorId || ""),
     enabled: !!doctorId,
   });
   
-  // Fetch appointments for patient list
-  const { data: appointments } = useQuery({
-    queryKey: ["/api/appointments"],
-    enabled: !!user && user.role === "doctor",
+  // Fetch patients for this doctor
+  const { data: patients = [] } = useQuery({
+    queryKey: ["patients", doctorId],
+    queryFn: () => userService.getDoctorPatients(doctorId || ""),
+    enabled: !!doctorId,
   });
-  
-  // Get unique patients from appointments
-  const uniquePatients = appointments ? 
-    [...new Set(appointments.map(apt => apt.patientId))] : [];
   
   // Filter records based on search query and active tab
   const filteredRecords = records?.filter(record => {
     const query = searchQuery.toLowerCase();
     const matchesSearch = 
       record.diagnosis.toLowerCase().includes(query) ||
-      (record.symptoms && record.symptoms.toLowerCase().includes(query)) ||
       (record.notes && record.notes.toLowerCase().includes(query));
     
     if (activeTab === "all") {
@@ -137,15 +138,11 @@ export default function DoctorMedicalRecords() {
   const recordForm = useForm<MedicalRecordFormValues>({
     resolver: zodResolver(medicalRecordSchema),
     defaultValues: {
-      patientId: selectedPatientId || undefined,
-      visitDate: new Date().toISOString().split('T')[0],
+      patientId: selectedPatientId || "",
+      date: new Date().toISOString().split('T')[0],
       diagnosis: "",
-      symptoms: "",
-      vitalSigns: "",
-      medications: "",
-      allergies: "",
+      prescription: "",
       notes: "",
-      followUpDate: "",
     }
   });
   
@@ -166,30 +163,20 @@ export default function DoctorMedicalRecords() {
   // Create new medical record mutation
   const createRecordMutation = useMutation({
     mutationFn: async (data: MedicalRecordFormValues) => {
-      // Parse stringified JSON fields
-      let formattedData: any = { ...data };
+      if (!doctorId) throw new Error("Doctor ID not found");
       
-      if (data.vitalSigns) {
-        try {
-          formattedData.vitalSigns = JSON.parse(data.vitalSigns);
-        } catch (e) {
-          formattedData.vitalSigns = { value: data.vitalSigns };
-        }
-      }
+      const appointmentData = {
+        doctorId,
+        patientId: data.patientId,
+        date: data.date,
+        diagnosis: data.diagnosis,
+        prescription: data.prescription,
+        notes: data.notes,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
       
-      if (data.medications) {
-        try {
-          formattedData.medications = JSON.parse(data.medications);
-        } catch (e) {
-          formattedData.medications = { medications: data.medications };
-        }
-      }
-      
-      // Add doctor ID
-      formattedData.doctorId = doctorId;
-      
-      const res = await apiRequest("POST", "/api/medical-records", formattedData);
-      return await res.json();
+      return await medicalRecordService.createMedicalRecord(appointmentData);
     },
     onSuccess: () => {
       toast({
@@ -199,7 +186,7 @@ export default function DoctorMedicalRecords() {
       });
       setShowNewRecordDialog(false);
       recordForm.reset();
-      queryClient.invalidateQueries({ queryKey: ["/api/medical-records/doctor", doctorId] });
+      queryClient.invalidateQueries({ queryKey: ["medical-records", doctorId] });
     },
     onError: (error: Error) => {
       toast({
@@ -254,15 +241,11 @@ export default function DoctorMedicalRecords() {
     }
   });
   
-  const handleExpandRecord = (recordId: number) => {
+  const handleExpandRecord = (recordId: string) => {
     setExpandedRecordId(recordId === expandedRecordId ? null : recordId);
-    if (recordId !== expandedRecordId) {
-      // Update the lab form with the new medical record ID
-      labForm.setValue("medicalRecordId", recordId);
-    }
   };
   
-  const handleNewRecord = (patientId?: number) => {
+  const handleNewRecord = (patientId?: string) => {
     if (patientId) {
       recordForm.setValue("patientId", patientId);
       setSelectedPatientId(patientId);
@@ -285,7 +268,7 @@ export default function DoctorMedicalRecords() {
     createLabResultMutation.mutate(values);
   };
   
-  const handleSelectPatient = (patientId: number) => {
+  const handleSelectPatient = (patientId: string) => {
     setSelectedPatientId(patientId);
     setActiveTab("patient");
   };
@@ -340,7 +323,7 @@ export default function DoctorMedicalRecords() {
                     <div className="flex items-center">
                       <div className="text-sm text-gray-500 mr-4">
                         <Calendar className="inline-block mr-1 h-4 w-4" />
-                        {formatDate(record.visitDate)}
+                        {formatDate(record.date)}
                       </div>
                       {expandedRecordId === record.id ? 
                         <ChevronDown className="h-5 w-5" /> : 
@@ -358,10 +341,10 @@ export default function DoctorMedicalRecords() {
                             <p className="text-gray-900">{record.diagnosis}</p>
                           </div>
                           
-                          {record.symptoms && (
+                          {record.prescription && (
                             <div>
-                              <h4 className="text-sm font-medium mb-1 text-gray-500">Symptoms</h4>
-                              <p className="text-gray-900">{record.symptoms}</p>
+                              <h4 className="text-sm font-medium mb-1 text-gray-500">Prescription</h4>
+                              <p className="text-gray-900 whitespace-pre-line">{record.prescription}</p>
                             </div>
                           )}
                           
@@ -369,67 +352,6 @@ export default function DoctorMedicalRecords() {
                             <div>
                               <h4 className="text-sm font-medium mb-1 text-gray-500">Doctor's Notes</h4>
                               <p className="text-gray-900 whitespace-pre-line">{record.notes}</p>
-                            </div>
-                          )}
-                          
-                          {record.vitalSigns && typeof record.vitalSigns === 'object' && (
-                            <div>
-                              <h4 className="text-sm font-medium mb-2 text-gray-500">Vital Signs</h4>
-                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                                {Object.entries(record.vitalSigns).map(([key, value]) => (
-                                  <div key={key} className="bg-gray-50 p-3 rounded-md">
-                                    <div className="text-xs text-gray-500 capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</div>
-                                    <div className="font-medium">{value}</div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                          
-                          {record.medications && typeof record.medications === 'object' && (
-                            <div>
-                              <h4 className="text-sm font-medium mb-2 text-gray-500">Medications</h4>
-                              {Array.isArray(record.medications) ? (
-                                <div className="space-y-2">
-                                  {record.medications.map((medication, i) => (
-                                    <div key={i} className="bg-gray-50 p-3 rounded-md">
-                                      <div className="font-medium">{medication.name}</div>
-                                      <div className="text-sm text-gray-500">
-                                        {medication.dosage} • {medication.frequency}
-                                      </div>
-                                      {medication.instructions && (
-                                        <div className="text-sm mt-1">{medication.instructions}</div>
-                                      )}
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <div className="space-y-2">
-                                  {Object.entries(record.medications).map(([key, value]) => (
-                                    <div key={key} className="bg-gray-50 p-3 rounded-md">
-                                      <div className="font-medium">{key}</div>
-                                      <div className="text-sm">{value}</div>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                          
-                          {record.allergies && (
-                            <div>
-                              <h4 className="text-sm font-medium mb-1 text-gray-500">Allergies</h4>
-                              <p className="text-gray-900">{record.allergies}</p>
-                            </div>
-                          )}
-                          
-                          {record.followUpDate && (
-                            <div className="flex items-center mt-4 p-3 bg-blue-50 text-blue-700 rounded-md">
-                              <AlertCircle className="h-5 w-5 mr-2 text-blue-500" />
-                              <div>
-                                <span className="font-medium">Follow-up appointment: </span>
-                                {formatDate(record.followUpDate)}
-                              </div>
                             </div>
                           )}
                         </div>
@@ -510,58 +432,37 @@ export default function DoctorMedicalRecords() {
               ))}
             </div>
           ) : (
-            <div className="bg-gray-50 rounded-lg p-12 text-center">
-              <FileText className="h-12 w-12 mx-auto text-gray-400 mb-4" />
-              <h3 className="text-xl font-medium mb-2">No medical records found</h3>
-              <p className="text-gray-500 mb-6 max-w-md mx-auto">
-                {searchQuery 
-                  ? "No medical records match your search criteria." 
-                  : activeTab === "patient" && selectedPatientId
-                  ? `No medical records found for Patient #${selectedPatientId}.`
-                  : "You haven't created any medical records yet."}
+            <div className="text-center py-12">
+              <FileText className="mx-auto h-12 w-12 text-gray-400" />
+              <h3 className="mt-2 text-sm font-medium text-gray-900">No medical records</h3>
+              <p className="mt-1 text-sm text-gray-500">
+                Get started by creating a new medical record.
               </p>
-              {activeTab === "patient" && selectedPatientId && (
-                <Button onClick={() => handleNewRecord(selectedPatientId)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Create Record for Patient #{selectedPatientId}
-                </Button>
-              )}
             </div>
           )}
         </div>
         
-        {/* Patients sidebar */}
+        {/* Patient List Sidebar */}
         <div className="md:w-1/4">
           <Card>
-            <CardHeader className="px-4 py-3 border-b">
-              <CardTitle className="text-base">Your Patients</CardTitle>
+            <CardHeader>
+              <CardTitle>Patients</CardTitle>
+              <CardDescription>Select a patient to view their records</CardDescription>
             </CardHeader>
-            <CardContent className="p-0">
-              {uniquePatients.length === 0 ? (
-                <div className="p-4 text-center text-gray-500">
-                  <User className="h-8 w-8 mx-auto text-gray-400 mb-2" />
-                  <p className="text-sm">No patients found</p>
-                </div>
-              ) : (
-                <ul className="divide-y divide-gray-100">
-                  {uniquePatients.map((patientId) => (
-                    <li key={patientId}>
-                      <Button
-                        variant="ghost"
-                        className={`w-full justify-start rounded-none px-4 py-3 text-left ${
-                          activeTab === "patient" && selectedPatientId === patientId
-                            ? "bg-primary-50 text-primary-700"
-                            : ""
-                        }`}
-                        onClick={() => handleSelectPatient(patientId)}
-                      >
-                        <User className="mr-2 h-4 w-4" />
-                        <span>Patient #{patientId}</span>
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+            <CardContent>
+              <div className="space-y-2">
+                {patients.map((patient) => (
+                  <Button
+                    key={patient.id}
+                    variant={selectedPatientId === patient.id ? "default" : "ghost"}
+                    className="w-full justify-start"
+                    onClick={() => handleSelectPatient(patient.id)}
+                  >
+                    <User className="mr-2 h-4 w-4" />
+                    {patient.fullName}
+                  </Button>
+                ))}
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -585,10 +486,24 @@ export default function DoctorMedicalRecords() {
                   name="patientId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Patient ID</FormLabel>
-                      <FormControl>
-                        <Input type="number" {...field} onChange={e => field.onChange(parseInt(e.target.value))} />
-                      </FormControl>
+                      <FormLabel>Patient</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        defaultValue={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a patient" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {patients.map((patient) => (
+                            <SelectItem key={patient.id} value={patient.id}>
+                              {patient.fullName}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -596,7 +511,7 @@ export default function DoctorMedicalRecords() {
                 
                 <FormField
                   control={recordForm.control}
-                  name="visitDate"
+                  name="date"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Visit Date</FormLabel>
@@ -625,56 +540,12 @@ export default function DoctorMedicalRecords() {
               
               <FormField
                 control={recordForm.control}
-                name="symptoms"
+                name="prescription"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Symptoms</FormLabel>
+                    <FormLabel>Prescription</FormLabel>
                     <FormControl>
-                      <Textarea {...field} rows={2} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <FormField
-                  control={recordForm.control}
-                  name="vitalSigns"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Vital Signs (JSON format)</FormLabel>
-                      <FormControl>
-                        <Textarea {...field} placeholder='{"bloodPressure": "120/80", "temperature": "98.6°F", "heartRate": "72 bpm"}' rows={3} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                
-                <FormField
-                  control={recordForm.control}
-                  name="medications"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Medications (JSON format)</FormLabel>
-                      <FormControl>
-                        <Textarea {...field} placeholder='{"medication1": "dosage", "medication2": "dosage"}' rows={3} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              
-              <FormField
-                control={recordForm.control}
-                name="allergies"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Allergies</FormLabel>
-                    <FormControl>
-                      <Input {...field} />
+                      <Textarea {...field} rows={3} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -689,20 +560,6 @@ export default function DoctorMedicalRecords() {
                     <FormLabel>Doctor's Notes</FormLabel>
                     <FormControl>
                       <Textarea {...field} rows={3} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              
-              <FormField
-                control={recordForm.control}
-                name="followUpDate"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Follow-up Date (if needed)</FormLabel>
-                    <FormControl>
-                      <Input type="date" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

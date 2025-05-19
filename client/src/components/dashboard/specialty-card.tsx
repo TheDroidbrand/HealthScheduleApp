@@ -1,27 +1,27 @@
-import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { LucideIcon } from "lucide-react";
 
 interface SpecialtyCardProps {
   title: string;
-  description: string;
-  imageUrl: string;
+  icon: LucideIcon;
+  specialty: string;
+  count: number;
 }
 
-export function SpecialtyCard({ title, description, imageUrl }: SpecialtyCardProps) {
+export function SpecialtyCard({ title, icon: Icon, specialty, count }: SpecialtyCardProps) {
   return (
-    <div className="border rounded-lg overflow-hidden hover:shadow-md transition-shadow">
-      <div className="h-32 w-full bg-gray-200">
-        <img className="h-full w-full object-cover" src={imageUrl} alt={title} />
-      </div>
-      <div className="p-4">
-        <h4 className="font-medium">{title}</h4>
-        <p className="text-sm text-gray-500 mt-1">{description}</p>
-        <Button asChild className="mt-3 w-full">
-          <Link href="/doctors">
-            <a>Find Specialist</a>
-          </Link>
-        </Button>
-      </div>
-    </div>
+    <Link href={`/doctors?specialty=${encodeURIComponent(specialty)}`}>
+      <Card className="hover:shadow-lg transition-shadow cursor-pointer">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium">{title}</CardTitle>
+          <Icon className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">{count}</div>
+          <p className="text-xs text-muted-foreground">Doctors available</p>
+        </CardContent>
+      </Card>
+    </Link>
   );
 }

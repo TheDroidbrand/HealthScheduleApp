@@ -1,7 +1,5 @@
 import { useState } from "react";
-import { Doctor, Schedule } from "@shared/schema";
 import { useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -15,29 +13,29 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { ScheduleForm } from "@/components/admin/schedule-form";
+import { FirebaseDoctor, FirebaseSchedule } from "@/types/firebase";
 
 interface ScheduleTableProps {
-  doctors?: Doctor[];
-  schedules?: Schedule[];
+  doctors?: FirebaseDoctor[];
+  schedules?: FirebaseSchedule[];
   isLoading: boolean;
 }
 
 export function ScheduleTable({ doctors, schedules, isLoading }: ScheduleTableProps) {
   const { toast } = useToast();
-  const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
+  const [editingSchedule, setEditingSchedule] = useState<FirebaseSchedule | null>(null);
   const [showEditDialog, setShowEditDialog] = useState(false);
-  const [selectedScheduleId, setSelectedScheduleId] = useState<number | null>(null);
+  const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   const deleteScheduleMutation = useMutation({
-    mutationFn: async (id: number) => {
+    mutationFn: async (id: string) => {
       // This would delete the schedule in a real app
       await new Promise(resolve => setTimeout(resolve, 500));
       return id;
     },
     onSuccess: () => {
       setShowDeleteDialog(false);
-      queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
       toast({
         title: "Schedule deleted",
         description: "The schedule has been deleted successfully",
@@ -52,12 +50,12 @@ export function ScheduleTable({ doctors, schedules, isLoading }: ScheduleTablePr
     },
   });
 
-  const handleEditClick = (schedule: Schedule) => {
+  const handleEditClick = (schedule: FirebaseSchedule) => {
     setEditingSchedule(schedule);
     setShowEditDialog(true);
   };
 
-  const handleDeleteClick = (id: number) => {
+  const handleDeleteClick = (id: string) => {
     setSelectedScheduleId(id);
     setShowDeleteDialog(true);
   };
@@ -73,20 +71,6 @@ export function ScheduleTable({ doctors, schedules, isLoading }: ScheduleTablePr
     const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     return days[dayNumber];
   };
-
-  // Sample schedules for the UI
-  const sampleSchedules = [
-    { doctorId: 1, dayOfWeek: 1, startTime: "09:00:00", endTime: "17:00:00", isAvailable: true },
-    { doctorId: 1, dayOfWeek: 2, startTime: "09:00:00", endTime: "17:00:00", isAvailable: true },
-    { doctorId: 1, dayOfWeek: 3, startTime: "09:00:00", endTime: "13:00:00", isAvailable: true },
-    { doctorId: 1, dayOfWeek: 4, startTime: "09:00:00", endTime: "17:00:00", isAvailable: true },
-    { doctorId: 1, dayOfWeek: 5, startTime: "09:00:00", endTime: "17:00:00", isAvailable: true },
-    { doctorId: 2, dayOfWeek: 1, startTime: "10:00:00", endTime: "18:00:00", isAvailable: true },
-    { doctorId: 2, dayOfWeek: 2, startTime: "10:00:00", endTime: "18:00:00", isAvailable: true },
-    { doctorId: 2, dayOfWeek: 3, startTime: "10:00:00", endTime: "18:00:00", isAvailable: true },
-    { doctorId: 3, dayOfWeek: 1, startTime: "08:00:00", endTime: "16:00:00", isAvailable: true },
-    { doctorId: 3, dayOfWeek: 2, startTime: "08:00:00", endTime: "16:00:00", isAvailable: true },
-  ];
 
   if (isLoading) {
     return (
@@ -146,13 +130,11 @@ export function ScheduleTable({ doctors, schedules, isLoading }: ScheduleTablePr
   }
 
   // Group schedules by doctor
-  // In a real app, we would use the actual schedules from the API
-  // For now, we'll use the doctors list with sample schedules
   const doctorSchedules = doctors?.map(doctor => {
-    const doctorSampleSchedules = sampleSchedules.filter(s => s.doctorId === doctor.id);
+    const doctorSchedules = schedules?.filter(s => s.doctorId === doctor.id) || [];
     return {
       doctor,
-      schedules: doctorSampleSchedules
+      schedules: doctorSchedules
     };
   }) || [];
 
@@ -183,8 +165,8 @@ export function ScheduleTable({ doctors, schedules, isLoading }: ScheduleTablePr
                         <AvatarFallback>DR</AvatarFallback>
                       </Avatar>
                       <div className="ml-4">
-                        <div className="text-sm font-medium text-gray-900">Dr. Sarah Johnson</div>
-                        <div className="text-sm text-gray-500">sarah.johnson@example.com</div>
+                        <div className="text-sm font-medium text-gray-900">Dr. {doctor.id}</div>
+                        <div className="text-sm text-gray-500">{doctor.specialty}</div>
                       </div>
                     </div>
                   </td>
@@ -238,7 +220,7 @@ export function ScheduleTable({ doctors, schedules, isLoading }: ScheduleTablePr
               dayOfWeek: editingSchedule.dayOfWeek,
               startTime: editingSchedule.startTime,
               endTime: editingSchedule.endTime,
-              isAvailable: editingSchedule.isAvailable,
+              isAvailable: Boolean(editingSchedule.isAvailable),
             } : undefined}
             onSuccess={() => setShowEditDialog(false)} 
           />

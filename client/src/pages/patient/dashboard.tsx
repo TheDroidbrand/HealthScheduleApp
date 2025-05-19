@@ -1,90 +1,164 @@
 import { MainLayout } from "@/components/layout/main-layout";
 import { useAuth } from "@/hooks/use-auth";
-import { StatsCard } from "@/components/dashboard/stats-card";
-import { UpcomingAppointments } from "@/components/dashboard/upcoming-appointments";
-import { SpecialtyCard } from "@/components/dashboard/specialty-card";
-import { Calendar, Cross, Heart } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { Appointment } from "@shared/schema";
+import { appointmentService, userService } from "@/lib/firebase-service";
+import { FirebaseAppointment, FirebaseDoctor } from "@/types/firebase";
+import { formatDate, formatTime } from "@/lib/utils";
+import { format } from "date-fns";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Calendar, Clock, User } from "lucide-react";
+import { Link } from "wouter";
 
 export default function PatientDashboard() {
   const { user } = useAuth();
-  
-  const { data: appointments, isLoading } = useQuery<Appointment[]>({
-    queryKey: ["/api/appointments"],
-    enabled: !!user,
+
+  // Fetch appointments using the user's ID directly
+  const { data: appointments = [], isLoading } = useQuery<FirebaseAppointment[]>({
+    queryKey: ["appointments", user?.id],
+    queryFn: () => appointmentService.getPatientAppointments(user?.id || ""),
+    enabled: !!user?.id,
+    refetchInterval: 5000, // Refetch every 5 seconds to get new appointments
   });
 
-  // Get upcoming appointments from today onwards
-  const upcomingAppointments = appointments?.filter(a => {
-    const appointmentDate = new Date(a.date);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return appointmentDate >= today;
-  }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  const { data: doctors = [] } = useQuery<FirebaseDoctor[]>({
+    queryKey: ["doctors"],
+    queryFn: () => userService.getAllDoctors(),
+  });
 
-  // Get the next upcoming appointment
-  const nextAppointment = upcomingAppointments?.[0];
+  // Filter appointments by status
+  const upcomingAppointments = appointments.filter(
+    (appointment) => {
+      const appointmentDate = new Date(appointment.date);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      return appointmentDate >= today && appointment.status !== "cancelled";
+    }
+  ).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  const pastAppointments = appointments.filter(
+    (appointment) => {
+      const appointmentDate = new Date(appointment.date);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      return appointmentDate < today || appointment.status === "cancelled";
+    }
+  ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "scheduled":
+        return <Badge className="bg-blue-100 text-blue-800">Scheduled</Badge>;
+      case "completed":
+        return <Badge className="bg-green-100 text-green-800">Completed</Badge>;
+      case "cancelled":
+        return <Badge className="bg-red-100 text-red-800">Cancelled</Badge>;
+      default:
+        return <Badge className="bg-gray-100 text-gray-800">{status}</Badge>;
+    }
+  };
+
+  const getDoctorName = (doctorId: string) => {
+    const doctor = doctors.find((d) => d.id === doctorId);
+    return doctor ? `Dr. ${doctor.fullName}` : "Unknown Doctor";
+  };
 
   return (
     <MainLayout title="Patient Dashboard">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-        <StatsCard 
-          title="Upcoming Appointment"
-          value={nextAppointment ? "Tomorrow" : "None"}
-          description={nextAppointment ? "10:30 AM with Dr. Johnson" : "No upcoming appointments"}
-          icon={<Calendar className="h-5 w-5" />}
-          iconColor="text-primary-600"
-          iconBgColor="bg-primary-100"
-        />
-        
-        <StatsCard 
-          title="Last Checkup"
-          value="2 weeks ago"
-          description="Dr. Michael Lee"
-          icon={<Cross className="h-5 w-5" />}
-          iconColor="text-green-600"
-          iconBgColor="bg-green-100"
-        />
-        
-        <StatsCard 
-          title="Health Status"
-          value="Good"
-          description="No urgent issues"
-          icon={<Heart className="h-5 w-5" />}
-          iconColor="text-amber-500"
-          iconBgColor="bg-amber-100"
-        />
-      </div>
-      
-      <UpcomingAppointments 
-        appointments={upcomingAppointments} 
-        isLoading={isLoading}
-      />
-      
-      <div className="bg-white rounded-lg shadow mt-6">
-        <div className="px-5 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold">Recommended Specialists</h3>
-        </div>
-        <div className="p-5">
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
-            <SpecialtyCard 
-              title="Cardiology"
-              description="Heart health specialists"
-              imageUrl="https://images.unsplash.com/photo-1551076805-e1869033e561?ixlib=rb-1.2.1&auto=format&fit=crop&w=1000&q=80"
-            />
-            
-            <SpecialtyCard 
-              title="Neurology"
-              description="Brain and nervous system"
-              imageUrl="https://images.unsplash.com/photo-1559839734-2b71ea197ec2?ixlib=rb-1.2.1&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80"
-            />
-            
-            <SpecialtyCard 
-              title="Dermatology"
-              description="Skin, hair and nails"
-              imageUrl="https://images.unsplash.com/photo-1530497610245-94d3c16cda28?ixlib=rb-1.2.1&auto=format&fit=crop&w=1000&q=80"
-            />
+      <div className="space-y-6">
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <div className="bg-white rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold mb-2">Upcoming Appointments</h3>
+            {isLoading ? (
+              <div className="text-center py-4">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto"></div>
+              </div>
+            ) : upcomingAppointments.length === 0 ? (
+              <div className="text-center py-4">
+                <p className="text-muted-foreground mb-4">No upcoming appointments</p>
+                <Button asChild>
+                  <Link href="/patient/doctors">Find a Doctor</Link>
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {upcomingAppointments.slice(0, 3).map((appointment) => (
+                  <div key={appointment.id} className="border-b pb-4 last:border-0">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-medium">{getDoctorName(appointment.doctorId)}</span>
+                      {getStatusBadge(appointment.status)}
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      <div className="flex items-center">
+                        <Calendar className="h-4 w-4 mr-2" />
+                        {formatDate(appointment.date)}
+                      </div>
+                      <div className="flex items-center mt-1">
+                        <Clock className="h-4 w-4 mr-2" />
+                        {formatTime(appointment.time)}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {upcomingAppointments.length > 3 && (
+                  <Button variant="outline" className="w-full" asChild>
+                    <Link href="/patient/appointments">View All</Link>
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold mb-2">Recent Appointments</h3>
+            {isLoading ? (
+              <div className="text-center py-4">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto"></div>
+              </div>
+            ) : pastAppointments.length === 0 ? (
+              <p className="text-muted-foreground">No past appointments</p>
+            ) : (
+              <div className="space-y-4">
+                {pastAppointments.slice(0, 3).map((appointment) => (
+                  <div key={appointment.id} className="border-b pb-4 last:border-0">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-medium">{getDoctorName(appointment.doctorId)}</span>
+                      {getStatusBadge(appointment.status)}
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      <div className="flex items-center">
+                        <Calendar className="h-4 w-4 mr-2" />
+                        {formatDate(appointment.date)}
+                      </div>
+                      <div className="flex items-center mt-1">
+                        <Clock className="h-4 w-4 mr-2" />
+                        {formatTime(appointment.time)}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {pastAppointments.length > 3 && (
+                  <Button variant="outline" className="w-full" asChild>
+                    <Link href="/patient/appointments">View All</Link>
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold mb-2">Quick Actions</h3>
+            <div className="space-y-4">
+              <Button className="w-full" asChild>
+                <Link href="/patient/doctors">Book New Appointment</Link>
+              </Button>
+              <Button variant="outline" className="w-full" asChild>
+                <Link href="/patient/appointments">View All Appointments</Link>
+              </Button>
+              <Button variant="outline" className="w-full" asChild>
+                <Link href="/patient/profile">Update Profile</Link>
+              </Button>
+            </div>
           </div>
         </div>
       </div>

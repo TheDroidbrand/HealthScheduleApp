@@ -1,123 +1,191 @@
 import { MainLayout } from "@/components/layout/main-layout";
+import { useAuth } from "@/hooks/use-auth";
 import { StatsCard } from "@/components/dashboard/stats-card";
-import { AppointmentTable } from "@/components/admin/appointment-table";
-import { OptimizationMetrics } from "@/components/admin/optimization-metrics";
-import { ActivityLog } from "@/components/admin/activity-log";
 import { useQuery } from "@tanstack/react-query";
-import { CalendarCheck, Clock, Users, TrendingUp } from "lucide-react";
-
-interface SystemStats {
-  totalAppointments: number;
-  doctorsOnDuty: number;
-  averageWaitTime: number;
-  efficiency: number;
-}
+import { Calendar, Clock, MessageSquare, Stethoscope, Users } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { formatDate, formatTime } from "@/lib/utils";
+import { format } from "date-fns";
+import { appointmentService, userService } from "@/lib/firebase-service";
+import { Link } from "wouter";
+import { FirebaseAppointment } from "@/types/firebase";
+import { SpecialtyCard } from "@/components/dashboard/specialty-card";
 
 export default function AdminDashboard() {
-  const { data: stats, isLoading } = useQuery<SystemStats>({
-    queryKey: ["/api/stats"],
-  });
-  
-  const { data: appointments } = useQuery({
-    queryKey: ["/api/appointments"],
+  const { user } = useAuth();
+
+  const { data: appointments = [], isLoading: isLoadingAppointments } = useQuery<FirebaseAppointment[]>({
+    queryKey: ["appointments"],
+    queryFn: () => appointmentService.getAllAppointments(),
   });
 
-  const departmentPerformance = [
-    { name: "Cardiology", efficiency: 87, appointments: 128, color: "bg-primary-500" },
-    { name: "Dermatology", efficiency: 91, appointments: 95, color: "bg-secondary-500" },
-    { name: "Neurology", efficiency: 83, appointments: 76, color: "bg-amber-500" },
-    { name: "Pediatrics", efficiency: 94, appointments: 142, color: "bg-green-500" },
-    { name: "Orthopedics", efficiency: 79, appointments: 89, color: "bg-red-500" },
+  const { data: doctors = [], isLoading: isLoadingDoctors } = useQuery({
+    queryKey: ["doctors"],
+    queryFn: () => userService.getAllDoctors(),
+  });
+
+  const { data: patients = [], isLoading: isLoadingPatients } = useQuery({
+    queryKey: ["patients"],
+    queryFn: () => userService.getAllPatients(),
+  });
+
+  const upcomingAppointments = appointments?.filter(
+    (appointment) => new Date(appointment.date) > new Date()
+  ) || [];
+
+  const todayAppointments = appointments?.filter(
+    (appointment) =>
+      format(new Date(appointment.date), "yyyy-MM-dd") ===
+      format(new Date(), "yyyy-MM-dd")
+  ) || [];
+
+  const nextAppointment = upcomingAppointments[0];
+
+  const specialties = [
+    { title: "General Medicine", icon: Stethoscope, specialty: "general", count: 12 },
+    { title: "Cardiology", icon: Stethoscope, specialty: "cardiology", count: 8 },
+    { title: "Dermatology", icon: Stethoscope, specialty: "dermatology", count: 6 },
+    { title: "Pediatrics", icon: Stethoscope, specialty: "pediatrics", count: 10 },
   ];
 
   return (
     <MainLayout title="Admin Dashboard">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-        <StatsCard
-          title="Total Appointments"
-          value={stats?.totalAppointments?.toString() || "0"}
-          description="8% increase from yesterday"
-          icon={<CalendarCheck className="h-5 w-5" />}
-          iconColor="text-primary-600"
-          iconBgColor="bg-primary-100"
-        />
-        
-        <StatsCard
-          title="Doctors On Duty"
-          value={stats?.doctorsOnDuty?.toString() || "0"}
-          description="2% decrease from yesterday"
-          icon={<Users className="h-5 w-5" />}
-          iconColor="text-secondary-600"
-          iconBgColor="bg-secondary-100"
-        />
-        
-        <StatsCard
-          title="Avg Wait Time"
-          value={`${stats?.averageWaitTime || 0} min`}
-          description="15% decrease from last week"
-          icon={<Clock className="h-5 w-5" />}
-          iconColor="text-amber-600"
-          iconBgColor="bg-amber-100"
-        />
-        
-        <StatsCard
-          title="Efficiency"
-          value={`${stats?.efficiency || 0}%`}
-          description="4% increase from last week"
-          icon={<TrendingUp className="h-5 w-5" />}
-          iconColor="text-green-600"
-          iconBgColor="bg-green-100"
-        />
-      </div>
-      
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-        <div className="lg:col-span-2">
-          <AppointmentTable appointments={appointments} />
-        </div>
-        
-        <div>
-          <OptimizationMetrics />
-        </div>
-      </div>
-      
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-lg shadow">
-          <div className="px-5 py-4 border-b border-gray-200 flex justify-between items-center">
-            <h3 className="text-lg font-semibold">Department Performance</h3>
-            <select className="text-sm rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring focus:ring-primary-200 focus:ring-opacity-50">
-              <option value="week">This Week</option>
-              <option value="month">This Month</option>
-              <option value="quarter">This Quarter</option>
-            </select>
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-bold">Admin Dashboard</h1>
+          <div className="flex items-center gap-4">
+            <Button variant="outline" asChild>
+              <Link href="/admin/doctors">Manage Doctors</Link>
+            </Button>
+            <Button asChild>
+              <Link href="/admin/patients">Manage Patients</Link>
+            </Button>
           </div>
-          <div className="p-5">
-            <div className="space-y-4">
-              {departmentPerformance.map((dept, index) => (
-                <div key={index} className="flex items-center justify-between border-b pb-3 last:border-b-0 last:pb-0">
-                  <div className="flex items-center">
-                    <div className={`w-3 h-3 rounded-full ${dept.color} mr-3`}></div>
-                    <div>
-                      <div className="font-medium">{dept.name}</div>
-                      <div className="text-sm text-gray-500">{dept.efficiency}% efficiency</div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <StatsCard
+            title="Total Doctors"
+            value={doctors.length.toString()}
+            icon={Users}
+            description="Registered doctors"
+          />
+          <StatsCard
+            title="Total Patients"
+            value={patients.length.toString()}
+            icon={Users}
+            description="Registered patients"
+          />
+          <StatsCard
+            title="Today's Appointments"
+            value={todayAppointments.length.toString()}
+            icon={Calendar}
+            description="Scheduled for today"
+          />
+          <StatsCard
+            title="Upcoming Appointments"
+            value={upcomingAppointments.length.toString()}
+            icon={Clock}
+            description="Scheduled for future"
+          />
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Next Appointment</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {isLoadingAppointments ? (
+                <div>Loading appointments...</div>
+              ) : nextAppointment ? (
+                <div className="flex items-center gap-4">
+                  <Avatar>
+                    <AvatarImage src={nextAppointment.patientAvatar} />
+                    <AvatarFallback>
+                      {nextAppointment.patientName
+                        .split(" ")
+                        .map((n: string) => n[0])
+                        .join("")}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1">
+                    <div className="font-medium">{nextAppointment.patientName}</div>
+                    <div className="text-sm text-muted-foreground">
+                      {formatDate(nextAppointment.date)} at{" "}
+                      {formatTime(nextAppointment.time)}
+                    </div>
+                    <div className="mt-2">
+                      <Badge variant="secondary">
+                        {nextAppointment.type}
+                      </Badge>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="font-medium">{dept.appointments}</div>
-                    <div className="text-sm text-gray-500">appointments</div>
-                  </div>
                 </div>
-              ))}
-            </div>
-            
-            <div className="mt-5 pt-4 border-t border-gray-200">
-              <button className="w-full px-4 py-2 bg-primary-600 text-white font-medium rounded-md hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 transition-colors">
-                View Detailed Report
-              </button>
-            </div>
-          </div>
+              ) : (
+                <div className="text-muted-foreground">No upcoming appointments</div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Today's Schedule</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {isLoadingAppointments ? (
+                <div>Loading schedule...</div>
+              ) : todayAppointments.length > 0 ? (
+                <div className="space-y-4">
+                  {todayAppointments.map((appointment) => (
+                    <div
+                      key={appointment.id}
+                      className="flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-8 w-8">
+                          <AvatarImage src={appointment.patientAvatar} />
+                          <AvatarFallback>
+                            {appointment.patientName
+                              .split(" ")
+                              .map((n: string) => n[0])
+                              .join("")}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <div className="font-medium">
+                            {appointment.patientName}
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            {formatTime(appointment.time)}
+                          </div>
+                        </div>
+                      </div>
+                      <Badge variant="secondary">{appointment.type}</Badge>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-muted-foreground">No appointments scheduled for today</div>
+              )}
+            </CardContent>
+          </Card>
         </div>
-        
-        <ActivityLog />
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {specialties.map(({ title, icon, specialty, count }) => (
+            <SpecialtyCard
+              key={specialty}
+              title={title}
+              icon={icon}
+              specialty={specialty}
+              count={count}
+            />
+          ))}
+        </div>
       </div>
     </MainLayout>
   );

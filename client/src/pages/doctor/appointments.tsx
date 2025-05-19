@@ -1,16 +1,15 @@
 import { MainLayout } from "@/components/layout/main-layout";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Appointment, Doctor } from "@shared/schema";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { formatDate, formatTime } from "@/lib/utils";
 import { useState } from "react";
-import { queryClient, apiRequest } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
 import { 
   Dialog,
   DialogContent,
@@ -27,38 +26,62 @@ import {
   Trash2, 
   XCircle 
 } from "lucide-react";
+import { appointmentService, userService } from "@/lib/firebase-service";
+import { AppointmentForm } from "@/components/appointments/appointment-form";
+import { format } from "date-fns";
+import { FirebaseAppointment, FirebaseDoctor } from "@/types/firebase";
 
 export default function DoctorAppointments() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("upcoming");
-  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
+  const [selectedAppointment, setSelectedAppointment] = useState<FirebaseAppointment | null>(null);
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [showAppointmentModal, setShowAppointmentModal] = useState(false);
   
-  // Fetch all appointments
-  const { data: appointments, isLoading } = useQuery<Appointment[]>({
-    queryKey: ["/api/appointments"],
-    enabled: !!user,
-  });
-
   // Fetch doctor profile
-  const { data: doctors } = useQuery<Doctor[]>({
-    queryKey: ["/api/doctors"],
+  const { data: doctors = [] } = useQuery<FirebaseDoctor[]>({
+    queryKey: ["doctors"],
+    queryFn: () => userService.getAllDoctors(),
     enabled: !!user,
   });
 
   // Find current doctor's profile
-  const doctorProfile = doctors?.find(doctor => doctor.userId === user?.id);
+  const doctorProfile = doctors.find((doctor: FirebaseDoctor) => doctor.userId === user?.id);
+
+  // Fetch appointments using the doctor's user ID directly
+  const { data: appointments = [], isLoading } = useQuery<FirebaseAppointment[]>({
+    queryKey: ["appointments", user?.id],
+    queryFn: () => appointmentService.getDoctorAppointments(user?.id || ""),
+    enabled: !!user?.id,
+  });
+
+  // Fetch patient information for each appointment
+  const { data: patients = {} } = useQuery({
+    queryKey: ["appointment-patients", appointments?.map(a => a.patientId) || []],
+    queryFn: async () => {
+      const patientData: Record<string, any> = {};
+      if (!appointments) return patientData;
+      
+      for (const appointment of appointments) {
+        if (!patientData[appointment.patientId]) {
+          const patient = await userService.getCurrentUser(appointment.patientId);
+          patientData[appointment.patientId] = patient;
+        }
+      }
+      return patientData;
+    },
+    enabled: !!appointments && appointments.length > 0,
+  });
 
   // Update appointment status mutation
   const updateStatusMutation = useMutation({
-    mutationFn: async ({id, status}: {id: number, status: string}) => {
-      const res = await apiRequest("PUT", `/api/appointments/${id}`, { status });
-      return await res.json();
+    mutationFn: async ({id, status}: {id: string, status: "pending" | "confirmed" | "cancelled" | "completed"}) => {
+      await appointmentService.updateAppointment(id, { status });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/appointments'] });
+      queryClient.invalidateQueries({ queryKey: ["appointments"] });
       toast({
         title: "Appointment updated",
         description: "The appointment status has been updated successfully.",
@@ -76,59 +99,27 @@ export default function DoctorAppointments() {
     }
   });
 
-  // Filter appointments for this doctor
-  const filterAppointments = (
-    status: "upcoming" | "past" | "cancelled" | "pending"
-  ): Appointment[] => {
-    if (!appointments || !doctorProfile) return [];
-    
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    // Only get appointments for this doctor
-    const doctorAppointments = appointments.filter(apt => apt.doctorId === doctorProfile.id);
-    
-    if (status === "upcoming") {
-      return doctorAppointments.filter(apt => {
-        const appointmentDate = new Date(apt.date);
-        return (
-          appointmentDate >= today && 
-          apt.status !== "cancelled" &&
-          apt.status !== "pending"
-        );
-      }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    } 
-    else if (status === "past") {
-      return doctorAppointments.filter(apt => {
-        const appointmentDate = new Date(apt.date);
-        return (
-          appointmentDate < today && 
-          apt.status !== "cancelled"
-        );
-      }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    } 
-    else if (status === "cancelled") {
-      return doctorAppointments.filter(apt => 
-        apt.status === "cancelled"
-      ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  // Group appointments by date
+  const appointmentsByDate = appointments.reduce((acc: Record<string, FirebaseAppointment[]>, appointment) => {
+    const date = format(new Date(appointment.date), 'yyyy-MM-dd');
+    if (!acc[date]) {
+      acc[date] = [];
     }
-    else if (status === "pending") {
-      return doctorAppointments.filter(apt => 
-        apt.status === "pending"
-      ).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    }
-    
-    return [];
-  };
+    acc[date].push(appointment);
+    return acc;
+  }, {});
 
-  const handleAcceptAppointment = (appointment: Appointment) => {
+  // Sort dates
+  const sortedDates = Object.keys(appointmentsByDate).sort();
+
+  const handleAcceptAppointment = (appointment: FirebaseAppointment) => {
     updateStatusMutation.mutate({
       id: appointment.id,
       status: "confirmed"
     });
   };
 
-  const handleRejectAppointment = (appointment: Appointment) => {
+  const handleRejectAppointment = (appointment: FirebaseAppointment) => {
     updateStatusMutation.mutate({
       id: appointment.id,
       status: "cancelled"
@@ -136,21 +127,15 @@ export default function DoctorAppointments() {
     setShowCancelDialog(false);
   };
 
-  const handleDetailsClick = (appointment: Appointment) => {
+  const handleDetailsClick = (appointment: FirebaseAppointment) => {
     setSelectedAppointment(appointment);
     setShowDetailsDialog(true);
   };
 
-  const handleCancelClick = (appointment: Appointment) => {
+  const handleCancelClick = (appointment: FirebaseAppointment) => {
     setSelectedAppointment(appointment);
     setShowCancelDialog(true);
   };
-
-  // Get appointments for each tab
-  const upcomingAppointments = filterAppointments("upcoming");
-  const pastAppointments = filterAppointments("past");
-  const cancelledAppointments = filterAppointments("cancelled");
-  const pendingAppointments = filterAppointments("pending");
 
   const getAppointmentStatusBadge = (status: string) => {
     switch (status) {
@@ -191,275 +176,367 @@ export default function DoctorAppointments() {
     }
   };
 
+  const handleAppointmentClick = (appointmentId: string) => {
+    setSelectedAppointment(null);
+    setShowAppointmentModal(true);
+  };
+
   return (
     <MainLayout title="Manage Appointments">
-      <Card>
-        <CardHeader className="px-5 py-4 border-b border-gray-200">
-          <CardTitle className="text-xl font-semibold">Appointments</CardTitle>
-        </CardHeader>
-        <CardContent className="p-5">
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="mb-6 grid grid-cols-4">
-              <TabsTrigger value="pending" className="relative">
-                Pending
-                {pendingAppointments.length > 0 && (
-                  <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
-                    {pendingAppointments.length}
-                  </span>
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold">My Appointments</h2>
+          <Button onClick={() => setShowAppointmentModal(true)}>
+            New Appointment
+          </Button>
+        </div>
+
+        <Card>
+          <CardHeader className="px-5 py-4 border-b border-gray-200">
+            <CardTitle className="text-xl font-semibold">Appointments</CardTitle>
+          </CardHeader>
+          <CardContent className="p-5">
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <TabsList className="mb-6 grid grid-cols-4">
+                <TabsTrigger value="pending" className="relative">
+                  Pending
+                  {appointments.filter(a => a.status === "pending").length > 0 && (
+                    <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
+                      {appointments.filter(a => a.status === "pending").length}
+                    </span>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="upcoming">Upcoming</TabsTrigger>
+                <TabsTrigger value="past">Past</TabsTrigger>
+                <TabsTrigger value="cancelled">Cancelled</TabsTrigger>
+              </TabsList>
+              
+              {/* Pending Appointments Tab */}
+              <TabsContent value="pending">
+                {isLoading ? (
+                  <div className="p-12 flex justify-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+                  </div>
+                ) : appointments.filter(a => a.status === "pending").length === 0 ? (
+                  <div className="text-center p-12">
+                    <Clock className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                    <h3 className="text-lg font-medium mb-2">No pending appointments</h3>
+                    <p className="text-gray-500">
+                      You don't have any appointment requests waiting for your confirmation.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-200">
+                    {appointments.filter(a => a.status === "pending").map((appointment) => {
+                      const patient = patients[appointment.patientId];
+                      return (
+                        <div key={appointment.id} className="py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex items-center mb-3 sm:mb-0">
+                            <Avatar className="h-10 w-10 mr-3">
+                              <AvatarFallback>
+                                {patient?.fullName?.substring(0, 2) || 'U'}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <div className="font-medium">{patient?.fullName || `Patient #${appointment.patientId}`}</div>
+                              <div className="text-sm text-gray-500 max-w-[300px] truncate">
+                                {appointment.reason}
+                              </div>
+                              <div className="text-sm text-gray-500 mt-1">
+                                {formatDate(appointment.date)} • {formatTime(appointment.startTime)} - {formatTime(appointment.endTime)}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-2 sm:ml-4">
+                            <Button 
+                              onClick={() => handleAppointmentClick(appointment.id)} 
+                              variant="outline" 
+                              size="sm"
+                            >
+                              <FileText className="h-4 w-4 mr-1" />
+                              Details
+                            </Button>
+                            <Button 
+                              onClick={() => handleAcceptAppointment(appointment)} 
+                              variant="default" 
+                              size="sm"
+                              className="bg-green-600 hover:bg-green-700"
+                              disabled={updateStatusMutation.isPending}
+                            >
+                              <CheckCircle2 className="h-4 w-4 mr-1" />
+                              Accept
+                            </Button>
+                            <Button 
+                              onClick={() => handleCancelClick(appointment)} 
+                              variant="outline" 
+                              size="sm"
+                              className="text-red-600 border-red-300 hover:bg-red-50"
+                              disabled={updateStatusMutation.isPending}
+                            >
+                              <XCircle className="h-4 w-4 mr-1" />
+                              Decline
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
-              </TabsTrigger>
-              <TabsTrigger value="upcoming">Upcoming</TabsTrigger>
-              <TabsTrigger value="past">Past</TabsTrigger>
-              <TabsTrigger value="cancelled">Cancelled</TabsTrigger>
-            </TabsList>
-            
-            {/* Pending Appointments Tab */}
-            <TabsContent value="pending">
-              {isLoading ? (
-                <div className="p-12 flex justify-center">
-                  <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
-                </div>
-              ) : pendingAppointments.length === 0 ? (
-                <div className="text-center p-12">
-                  <Clock className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-                  <h3 className="text-lg font-medium mb-2">No pending appointments</h3>
-                  <p className="text-gray-500">
-                    You don't have any appointment requests waiting for your confirmation.
-                  </p>
-                </div>
-              ) : (
-                <div className="divide-y divide-gray-200">
-                  {pendingAppointments.map((appointment) => (
-                    <div key={appointment.id} className="py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between">
-                      <div className="flex items-center mb-3 sm:mb-0">
-                        <Avatar className="h-10 w-10 mr-3">
-                          <AvatarFallback>
-                            {appointment.patientId.toString().substring(0, 2)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <div className="font-medium">Patient #{appointment.patientId}</div>
-                          <div className="text-sm text-gray-500 max-w-[300px] truncate">
-                            {appointment.reason}
+              </TabsContent>
+              
+              {/* Upcoming Appointments Tab */}
+              <TabsContent value="upcoming">
+                {isLoading ? (
+                  <div className="p-12 flex justify-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+                  </div>
+                ) : appointments.filter(a => a.status === "confirmed").length === 0 ? (
+                  <div className="text-center p-12">
+                    <Calendar className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                    <h3 className="text-lg font-medium mb-2">No upcoming appointments</h3>
+                    <p className="text-gray-500">
+                      You don't have any confirmed appointments scheduled for the future.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-200">
+                    {sortedDates.map((date) => (
+                      <Card key={date}>
+                        <CardHeader>
+                          <CardTitle>{format(new Date(date), 'MMMM d, yyyy')}</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-4">
+                            {appointmentsByDate[date].map((appointment) => {
+                              const patient = patients[appointment.patientId];
+                              return (
+                                <div
+                                  key={appointment.id}
+                                  className="flex items-center justify-between p-4 border rounded-lg"
+                                >
+                                  <div>
+                                    <p className="font-medium">
+                                      {format(new Date(appointment.date), 'h:mm a')}
+                                    </p>
+                                    <p className="text-sm text-muted-foreground">
+                                      Patient: {patient?.fullName || `Patient #${appointment.patientId}`}
+                                    </p>
+                                    <p className="text-sm text-muted-foreground">
+                                      Reason: {appointment.reason}
+                                    </p>
+                                  </div>
+                                  <div className="flex items-center gap-4">
+                                    <Badge
+                                      variant={
+                                        appointment.status === "confirmed"
+                                          ? "default"
+                                          : appointment.status === "cancelled"
+                                          ? "destructive"
+                                          : "secondary"
+                                      }
+                                    >
+                                      {appointment.status}
+                                    </Badge>
+                                    {appointment.status === "pending" && (
+                                      <div className="flex gap-2">
+                                        <Button
+                                          size="sm"
+                                          onClick={() =>
+                                            updateStatusMutation.mutate({
+                                              id: appointment.id,
+                                              status: "confirmed",
+                                            })
+                                          }
+                                        >
+                                          Accept
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="destructive"
+                                          onClick={() =>
+                                            updateStatusMutation.mutate({
+                                              id: appointment.id,
+                                              status: "cancelled",
+                                            })
+                                          }
+                                        >
+                                          Reject
+                                        </Button>
+                                      </div>
+                                    )}
+                                    {appointment.status === "confirmed" && (
+                                      <Button
+                                        size="sm"
+                                        variant="destructive"
+                                        onClick={() =>
+                                          updateStatusMutation.mutate({
+                                            id: appointment.id,
+                                            status: "cancelled",
+                                          })
+                                        }
+                                      >
+                                        Cancel
+                                      </Button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
-                          <div className="text-sm text-gray-500 mt-1">
-                            {formatDate(appointment.date)} • {formatTime(appointment.startTime)} - {formatTime(appointment.endTime)}
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+              
+              {/* Past Appointments Tab */}
+              <TabsContent value="past">
+                {isLoading ? (
+                  <div className="p-12 flex justify-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+                  </div>
+                ) : appointments.filter(a => a.status !== "confirmed" && a.status !== "pending").length === 0 ? (
+                  <div className="text-center p-12">
+                    <Calendar className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                    <h3 className="text-lg font-medium mb-2">No past appointments</h3>
+                    <p className="text-gray-500">
+                      You don't have any past appointments in your history.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-200">
+                    {sortedDates.map((date) => (
+                      <Card key={date}>
+                        <CardHeader>
+                          <CardTitle>{format(new Date(date), 'MMMM d, yyyy')}</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-4">
+                            {appointmentsByDate[date].map((appointment) => {
+                              const patient = patients[appointment.patientId];
+                              return (
+                                <div
+                                  key={appointment.id}
+                                  className="flex items-center justify-between p-4 border rounded-lg"
+                                >
+                                  <div>
+                                    <p className="font-medium">
+                                      {format(new Date(appointment.date), 'h:mm a')}
+                                    </p>
+                                    <p className="text-sm text-muted-foreground">
+                                      Patient: {patient?.fullName || `Patient #${appointment.patientId}`}
+                                    </p>
+                                    <p className="text-sm text-muted-foreground">
+                                      Reason: {appointment.reason}
+                                    </p>
+                                  </div>
+                                  <div className="flex items-center gap-4">
+                                    <Badge
+                                      variant={
+                                        appointment.status === "confirmed"
+                                          ? "default"
+                                          : appointment.status === "cancelled"
+                                          ? "destructive"
+                                          : "secondary"
+                                      }
+                                    >
+                                      {appointment.status}
+                                    </Badge>
+                                    <Button 
+                                      size="sm"
+                                      onClick={() => handleAppointmentClick(appointment.id)}
+                                    >
+                                      <FileText className="h-4 w-4 mr-1" />
+                                      Details
+                                    </Button>
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-2 sm:ml-4">
-                        <Button 
-                          onClick={() => handleDetailsClick(appointment)} 
-                          variant="outline" 
-                          size="sm"
-                        >
-                          <FileText className="h-4 w-4 mr-1" />
-                          Details
-                        </Button>
-                        <Button 
-                          onClick={() => handleAcceptAppointment(appointment)} 
-                          variant="default" 
-                          size="sm"
-                          className="bg-green-600 hover:bg-green-700"
-                          disabled={updateStatusMutation.isPending}
-                        >
-                          <CheckCircle2 className="h-4 w-4 mr-1" />
-                          Accept
-                        </Button>
-                        <Button 
-                          onClick={() => handleCancelClick(appointment)} 
-                          variant="outline" 
-                          size="sm"
-                          className="text-red-600 border-red-300 hover:bg-red-50"
-                          disabled={updateStatusMutation.isPending}
-                        >
-                          <XCircle className="h-4 w-4 mr-1" />
-                          Decline
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </TabsContent>
-            
-            {/* Upcoming Appointments Tab */}
-            <TabsContent value="upcoming">
-              {isLoading ? (
-                <div className="p-12 flex justify-center">
-                  <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
-                </div>
-              ) : upcomingAppointments.length === 0 ? (
-                <div className="text-center p-12">
-                  <Calendar className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-                  <h3 className="text-lg font-medium mb-2">No upcoming appointments</h3>
-                  <p className="text-gray-500">
-                    You don't have any confirmed appointments scheduled for the future.
-                  </p>
-                </div>
-              ) : (
-                <div className="divide-y divide-gray-200">
-                  {upcomingAppointments.map((appointment) => (
-                    <div key={appointment.id} className="py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between">
-                      <div className="flex items-center mb-3 sm:mb-0">
-                        <Avatar className="h-10 w-10 mr-3">
-                          <AvatarFallback>
-                            {appointment.patientId.toString().substring(0, 2)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <div className="flex items-center">
-                            <span className="font-medium">Patient #{appointment.patientId}</span>
-                            <span className="ml-2">
-                              {getAppointmentStatusBadge(appointment.status)}
-                            </span>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+              
+              {/* Cancelled Appointments Tab */}
+              <TabsContent value="cancelled">
+                {isLoading ? (
+                  <div className="p-12 flex justify-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+                  </div>
+                ) : appointments.filter(a => a.status === "cancelled").length === 0 ? (
+                  <div className="text-center p-12">
+                    <XCircle className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                    <h3 className="text-lg font-medium mb-2">No cancelled appointments</h3>
+                    <p className="text-gray-500">
+                      You don't have any cancelled appointments in your history.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-200">
+                    {sortedDates.map((date) => (
+                      <Card key={date}>
+                        <CardHeader>
+                          <CardTitle>{format(new Date(date), 'MMMM d, yyyy')}</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-4">
+                            {appointmentsByDate[date].map((appointment) => {
+                              const patient = patients[appointment.patientId];
+                              return (
+                                <div
+                                  key={appointment.id}
+                                  className="flex items-center justify-between p-4 border rounded-lg"
+                                >
+                                  <div>
+                                    <p className="font-medium">
+                                      {format(new Date(appointment.date), 'h:mm a')}
+                                    </p>
+                                    <p className="text-sm text-muted-foreground">
+                                      Patient: {patient?.fullName || `Patient #${appointment.patientId}`}
+                                    </p>
+                                    <p className="text-sm text-muted-foreground">
+                                      Reason: {appointment.reason}
+                                    </p>
+                                  </div>
+                                  <div className="flex items-center gap-4">
+                                    <Badge
+                                      variant={
+                                        appointment.status === "confirmed"
+                                          ? "default"
+                                          : appointment.status === "cancelled"
+                                          ? "destructive"
+                                          : "secondary"
+                                      }
+                                    >
+                                      {appointment.status}
+                                    </Badge>
+                                    <Button 
+                                      size="sm"
+                                      onClick={() => handleAppointmentClick(appointment.id)}
+                                    >
+                                      <FileText className="h-4 w-4 mr-1" />
+                                      Details
+                                    </Button>
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
-                          <div className="text-sm text-gray-500 max-w-[300px] truncate">
-                            {appointment.reason}
-                          </div>
-                          <div className="text-sm text-gray-500 mt-1">
-                            {formatDate(appointment.date)} • {formatTime(appointment.startTime)} - {formatTime(appointment.endTime)}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-2 sm:ml-4">
-                        <Button 
-                          onClick={() => handleDetailsClick(appointment)} 
-                          variant="outline" 
-                          size="sm"
-                        >
-                          <FileText className="h-4 w-4 mr-1" />
-                          Details
-                        </Button>
-                        <Button 
-                          onClick={() => handleCancelClick(appointment)} 
-                          variant="outline" 
-                          size="sm"
-                          className="text-red-600 border-red-300 hover:bg-red-50"
-                          disabled={updateStatusMutation.isPending}
-                        >
-                          <Trash2 className="h-4 w-4 mr-1" />
-                          Cancel
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </TabsContent>
-            
-            {/* Past Appointments Tab */}
-            <TabsContent value="past">
-              {isLoading ? (
-                <div className="p-12 flex justify-center">
-                  <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
-                </div>
-              ) : pastAppointments.length === 0 ? (
-                <div className="text-center p-12">
-                  <Calendar className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-                  <h3 className="text-lg font-medium mb-2">No past appointments</h3>
-                  <p className="text-gray-500">
-                    You don't have any past appointments in your history.
-                  </p>
-                </div>
-              ) : (
-                <div className="divide-y divide-gray-200">
-                  {pastAppointments.map((appointment) => (
-                    <div key={appointment.id} className="py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between">
-                      <div className="flex items-center mb-3 sm:mb-0">
-                        <Avatar className="h-10 w-10 mr-3">
-                          <AvatarFallback>
-                            {appointment.patientId.toString().substring(0, 2)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <div className="flex items-center">
-                            <span className="font-medium">Patient #{appointment.patientId}</span>
-                            <span className="ml-2">
-                              {getAppointmentStatusBadge(appointment.status)}
-                            </span>
-                          </div>
-                          <div className="text-sm text-gray-500 max-w-[300px] truncate">
-                            {appointment.reason}
-                          </div>
-                          <div className="text-sm text-gray-500 mt-1">
-                            {formatDate(appointment.date)} • {formatTime(appointment.startTime)} - {formatTime(appointment.endTime)}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-2 sm:ml-4">
-                        <Button 
-                          onClick={() => handleDetailsClick(appointment)} 
-                          variant="outline" 
-                          size="sm"
-                        >
-                          <FileText className="h-4 w-4 mr-1" />
-                          Details
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </TabsContent>
-            
-            {/* Cancelled Appointments Tab */}
-            <TabsContent value="cancelled">
-              {isLoading ? (
-                <div className="p-12 flex justify-center">
-                  <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
-                </div>
-              ) : cancelledAppointments.length === 0 ? (
-                <div className="text-center p-12">
-                  <XCircle className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-                  <h3 className="text-lg font-medium mb-2">No cancelled appointments</h3>
-                  <p className="text-gray-500">
-                    You don't have any cancelled appointments in your history.
-                  </p>
-                </div>
-              ) : (
-                <div className="divide-y divide-gray-200">
-                  {cancelledAppointments.map((appointment) => (
-                    <div key={appointment.id} className="py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between">
-                      <div className="flex items-center mb-3 sm:mb-0">
-                        <Avatar className="h-10 w-10 mr-3">
-                          <AvatarFallback>
-                            {appointment.patientId.toString().substring(0, 2)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <div className="flex items-center">
-                            <span className="font-medium">Patient #{appointment.patientId}</span>
-                            <span className="ml-2">
-                              {getAppointmentStatusBadge(appointment.status)}
-                            </span>
-                          </div>
-                          <div className="text-sm text-gray-500 max-w-[300px] truncate">
-                            {appointment.reason}
-                          </div>
-                          <div className="text-sm text-gray-500 mt-1">
-                            {formatDate(appointment.date)} • {formatTime(appointment.startTime)} - {formatTime(appointment.endTime)}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-2 sm:ml-4">
-                        <Button 
-                          onClick={() => handleDetailsClick(appointment)} 
-                          variant="outline" 
-                          size="sm"
-                        >
-                          <FileText className="h-4 w-4 mr-1" />
-                          Details
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+      </div>
       
       {/* Appointment Details Dialog */}
       {selectedAppointment && (
@@ -478,7 +555,7 @@ export default function DoctorAppointments() {
               </div>
               <div className="mb-4">
                 <h4 className="text-sm font-medium mb-1">Patient</h4>
-                <p className="text-sm">Patient #{selectedAppointment.patientId}</p>
+                <p className="text-sm">{patients[selectedAppointment.patientId]?.fullName || `Patient #${selectedAppointment.patientId}`}</p>
               </div>
               <div className="mb-4">
                 <h4 className="text-sm font-medium mb-1">Date & Time</h4>
@@ -599,6 +676,23 @@ export default function DoctorAppointments() {
           </DialogContent>
         </Dialog>
       )}
+
+      <Dialog open={showAppointmentModal} onOpenChange={setShowAppointmentModal}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedAppointment ? 'View Appointment' : 'New Appointment'}
+            </DialogTitle>
+          </DialogHeader>
+          <AppointmentForm
+            doctorId={user?.id || ""}
+            onSuccess={() => {
+              setShowAppointmentModal(false);
+              setSelectedAppointment(null);
+            }}
+          />
+        </DialogContent>
+      </Dialog>
     </MainLayout>
   );
 }

@@ -1,16 +1,17 @@
-import { Appointment } from "@shared/schema";
+import { FirebaseAppointment } from "@/types/firebase";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CalendarIcon, MapPinIcon, ClockIcon, FileText, CalendarPlus } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/utils";
+import { appointmentService } from "@/lib/firebase-service";
 
 interface AppointmentListProps {
-  appointments?: Appointment[];
+  appointments?: FirebaseAppointment[];
   isLoading: boolean;
   type: "upcoming" | "past" | "cancelled";
 }
@@ -19,11 +20,11 @@ export function AppointmentList({ appointments, isLoading, type }: AppointmentLi
   const { toast } = useToast();
   
   const cancelMutation = useMutation({
-    mutationFn: async (id: number) => {
-      await apiRequest("PUT", `/api/appointments/${id}`, { status: "cancelled" });
+    mutationFn: async (id: string) => {
+      await appointmentService.updateAppointment(id, { status: "cancelled" });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
+      queryClient.invalidateQueries({ queryKey: ["appointments"] });
       toast({
         title: "Appointment cancelled",
         description: "Your appointment has been successfully cancelled",
@@ -40,13 +41,13 @@ export function AppointmentList({ appointments, isLoading, type }: AppointmentLi
   });
 
   const rescheduleMutation = useMutation({
-    mutationFn: async (id: number) => {
+    mutationFn: async (id: string) => {
       // This would typically open a modal to reschedule
       // For now, we'll just update the status
-      await apiRequest("PUT", `/api/appointments/${id}`, { status: "pending" });
+      await appointmentService.updateAppointment(id, { status: "pending" });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
+      queryClient.invalidateQueries({ queryKey: ["appointments"] });
       toast({
         title: "Reschedule requested",
         description: "Your request to reschedule has been submitted",

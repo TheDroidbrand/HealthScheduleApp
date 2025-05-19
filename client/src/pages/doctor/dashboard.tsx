@@ -2,241 +2,190 @@ import { MainLayout } from "@/components/layout/main-layout";
 import { useAuth } from "@/hooks/use-auth";
 import { StatsCard } from "@/components/dashboard/stats-card";
 import { useQuery } from "@tanstack/react-query";
-import { Appointment, Doctor } from "@shared/schema";
-import { Calendar, Users, Clock, AlertCircle } from "lucide-react";
+import { Calendar, Clock, MessageSquare, Stethoscope } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { formatDate, formatTime } from "@/lib/utils";
+import { format } from "date-fns";
+import { appointmentService, userService } from "@/lib/firebase-service";
+import { Link } from "wouter";
+import { FirebaseAppointment, FirebaseDoctor } from "@/types/firebase";
+import { SpecialtyCard } from "@/components/dashboard/specialty-card";
 
 export default function DoctorDashboard() {
   const { user } = useAuth();
-  
-  // Fetch all appointments
-  const { data: appointments, isLoading: isLoadingAppointments } = useQuery<Appointment[]>({
-    queryKey: ["/api/appointments"],
-    enabled: !!user,
+
+  const { data: appointments = [], isLoading: isLoadingAppointments } = useQuery<FirebaseAppointment[]>({
+    queryKey: ["appointments", user?.id],
+    queryFn: () => appointmentService.getDoctorAppointments(user?.id || ""),
+    enabled: !!user?.id,
   });
 
-  // Fetch doctor profile
-  const { data: doctors } = useQuery<Doctor[]>({
-    queryKey: ["/api/doctors"],
-    enabled: !!user,
+  const { data: doctors = [] } = useQuery<FirebaseDoctor[]>({
+    queryKey: ["doctors"],
+    queryFn: () => userService.getAllDoctors(),
   });
 
-  // Find current doctor's profile
-  const doctorProfile = doctors?.find(doctor => doctor.userId === user?.id);
+  const upcomingAppointments = appointments?.filter(
+    (appointment) => new Date(appointment.date) > new Date()
+  ) || [];
 
-  // Filter today's appointments for this doctor
-  const today = new Date().toISOString().split('T')[0];
-  const todaysAppointments = appointments?.filter(apt => 
-    apt.doctorId === doctorProfile?.id && 
-    apt.date === today
-  ).sort((a, b) => a.startTime.localeCompare(b.startTime));
+  const todayAppointments = appointments?.filter(
+    (appointment) =>
+      format(new Date(appointment.date), "yyyy-MM-dd") ===
+      format(new Date(), "yyyy-MM-dd")
+  ) || [];
 
-  // Filter upcoming appointments (not today, but in the future)
-  const upcomingAppointments = appointments?.filter(apt => {
-    const appointmentDate = new Date(apt.date);
-    const todayDate = new Date();
-    todayDate.setHours(0, 0, 0, 0);
-    
-    // Only appointments for this doctor
-    if (apt.doctorId !== doctorProfile?.id) return false;
-    
-    // Only future dates, not today
-    return appointmentDate > todayDate && apt.date !== today;
-  }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  const nextAppointment = upcomingAppointments[0];
 
-  // Get pending appointments that need confirmation
-  const pendingAppointments = appointments?.filter(apt => 
-    apt.doctorId === doctorProfile?.id && 
-    apt.status === "pending"
-  );
+  // Get unique specialties from doctors
+  const specialties = doctors?.reduce((acc: { title: string; icon: typeof Stethoscope; specialty: string; count: number }[], doctor) => {
+    const existingSpecialty = acc.find(s => s.specialty === doctor.specialty);
+    if (existingSpecialty) {
+      existingSpecialty.count++;
+    } else {
+      acc.push({
+        title: doctor.specialty,
+        icon: Stethoscope,
+        specialty: doctor.specialty,
+        count: 1
+      });
+    }
+    return acc;
+  }, []) || [];
 
   return (
     <MainLayout title="Doctor Dashboard">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-        <StatsCard 
-          title="Today's Patients"
-          value={`${todaysAppointments?.length || 0}`}
-          description="Appointments scheduled for today"
-          icon={<Users className="h-5 w-5" />}
-          iconColor="text-blue-600"
-          iconBgColor="bg-blue-100"
-        />
-        
-        <StatsCard 
-          title="Pending Requests"
-          value={`${pendingAppointments?.length || 0}`}
-          description="Appointments waiting for confirmation"
-          icon={<AlertCircle className="h-5 w-5" />}
-          iconColor="text-amber-600"
-          iconBgColor="bg-amber-100"
-        />
-        
-        <StatsCard 
-          title="Availability"
-          value="3 days"
-          description="Mon, Wed, Fri - 9AM to 5PM"
-          icon={<Calendar className="h-5 w-5" />}
-          iconColor="text-green-600"
-          iconBgColor="bg-green-100"
-        />
-        
-        <StatsCard 
-          title="Average Visit Time"
-          value="25 min"
-          description="Based on your last 30 days"
-          icon={<Clock className="h-5 w-5" />}
-          iconColor="text-purple-600"
-          iconBgColor="bg-purple-100"
-        />
-      </div>
-      
-      {/* Today's Schedule */}
-      <Card className="mb-6">
-        <CardHeader className="px-5 py-4 border-b border-gray-200 flex justify-between items-center">
-          <CardTitle className="text-lg font-semibold">Today's Schedule</CardTitle>
-          <Button variant="outline">View Full Calendar</Button>
-        </CardHeader>
-        <CardContent className="p-0">
-          {todaysAppointments && todaysAppointments.length > 0 ? (
-            <div className="divide-y divide-gray-200">
-              {todaysAppointments.map((appointment) => (
-                <div key={appointment.id} className="p-4 flex items-center justify-between">
-                  <div className="flex items-center">
-                    <Avatar className="h-10 w-10 mr-3">
-                      <AvatarFallback>
-                        {appointment.patientId.toString().substring(0, 2)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <div className="font-medium">Patient #{appointment.patientId}</div>
-                      <div className="text-sm text-gray-500">{appointment.reason}</div>
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-bold">Doctor Dashboard</h1>
+          <div className="flex items-center gap-4">
+            <Button variant="outline" asChild>
+              <Link href="/doctor/appointments">View All Appointments</Link>
+            </Button>
+            <Button asChild>
+              <Link href="/doctor/patients">View Patients</Link>
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <StatsCard
+            title="Today's Appointments"
+            value={todayAppointments.length.toString()}
+            icon={Calendar}
+            description="Scheduled for today"
+          />
+          <StatsCard
+            title="Upcoming Appointments"
+            value={upcomingAppointments.length.toString()}
+            icon={Clock}
+            description="Scheduled for future"
+          />
+          <StatsCard
+            title="Past Appointments"
+            value={(appointments.length - upcomingAppointments.length).toString()}
+            icon={MessageSquare}
+            description="Completed appointments"
+          />
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Next Appointment</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {isLoadingAppointments ? (
+                <div>Loading appointments...</div>
+              ) : nextAppointment ? (
+                <div className="flex items-center gap-4">
+                  <Avatar>
+                    <AvatarImage src={nextAppointment.patientAvatar} />
+                    <AvatarFallback>
+                      {nextAppointment.patientName
+                        .split(" ")
+                        .map((n: string) => n[0])
+                        .join("")}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1">
+                    <div className="font-medium">{nextAppointment.patientName}</div>
+                    <div className="text-sm text-muted-foreground">
+                      {formatDate(nextAppointment.date)} at{" "}
+                      {formatTime(nextAppointment.time)}
                     </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <div className="font-medium">{formatTime(appointment.startTime)} - {formatTime(appointment.endTime)}</div>
-                      <Badge 
-                        variant="outline" 
-                        className={
-                          appointment.status === "confirmed" 
-                            ? "bg-green-100 text-green-800 border-green-200" 
-                            : appointment.status === "pending" 
-                            ? "bg-amber-100 text-amber-800 border-amber-200"
-                            : "bg-red-100 text-red-800 border-red-200"
-                        }
-                      >
-                        {appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)}
+                    <div className="mt-2">
+                      <Badge variant="secondary">
+                        {nextAppointment.type}
                       </Badge>
                     </div>
-                    <Button variant="outline" size="sm">
-                      Details
-                    </Button>
                   </div>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="p-6 text-center text-gray-500">
-              <Calendar className="mx-auto h-12 w-12 text-gray-400 mb-2" />
-              <h3 className="font-medium text-lg mb-1">No appointments today</h3>
-              <p className="text-gray-500 mb-4">You don't have any appointments scheduled for today.</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-      
-      {/* Pending Appointments */}
-      <Card className="mb-6">
-        <CardHeader className="px-5 py-4 border-b border-gray-200">
-          <CardTitle className="text-lg font-semibold">Pending Appointment Requests</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {pendingAppointments && pendingAppointments.length > 0 ? (
-            <div className="divide-y divide-gray-200">
-              {pendingAppointments.map((appointment) => (
-                <div key={appointment.id} className="p-4 flex items-center justify-between">
-                  <div className="flex items-center">
-                    <Avatar className="h-10 w-10 mr-3">
-                      <AvatarFallback>
-                        {appointment.patientId.toString().substring(0, 2)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <div className="font-medium">Patient #{appointment.patientId}</div>
-                      <div className="text-sm text-gray-500">{appointment.reason}</div>
+              ) : (
+                <div className="text-muted-foreground">No upcoming appointments</div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Today's Schedule</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {isLoadingAppointments ? (
+                <div>Loading schedule...</div>
+              ) : todayAppointments.length > 0 ? (
+                <div className="space-y-4">
+                  {todayAppointments.map((appointment) => (
+                    <div
+                      key={appointment.id}
+                      className="flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-8 w-8">
+                          <AvatarImage src={appointment.patientAvatar} />
+                          <AvatarFallback>
+                            {appointment.patientName
+                              .split(" ")
+                              .map((n: string) => n[0])
+                              .join("")}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <div className="font-medium">
+                            {appointment.patientName}
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            {formatTime(appointment.time)}
+                          </div>
+                        </div>
+                      </div>
+                      <Badge variant="secondary">{appointment.type}</Badge>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="text-right mr-4">
-                      <div className="font-medium">{formatDate(appointment.date)}</div>
-                      <div className="text-sm text-gray-500">{formatTime(appointment.startTime)} - {formatTime(appointment.endTime)}</div>
-                    </div>
-                    <Button variant="default" size="sm" className="bg-green-600 hover:bg-green-700">
-                      Accept
-                    </Button>
-                    <Button variant="outline" size="sm" className="text-red-600 border-red-300 hover:bg-red-50">
-                      Decline
-                    </Button>
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="p-6 text-center text-gray-500">
-              <AlertCircle className="mx-auto h-12 w-12 text-gray-400 mb-2" />
-              <h3 className="font-medium text-lg mb-1">No pending requests</h3>
-              <p className="text-gray-500">You don't have any appointment requests waiting for your confirmation.</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-      
-      {/* Upcoming Appointments */}
-      <Card>
-        <CardHeader className="px-5 py-4 border-b border-gray-200">
-          <CardTitle className="text-lg font-semibold">Upcoming Appointments</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {upcomingAppointments && upcomingAppointments.length > 0 ? (
-            <div className="divide-y divide-gray-200">
-              {upcomingAppointments.slice(0, 3).map((appointment) => (
-                <div key={appointment.id} className="p-4 flex items-center justify-between">
-                  <div className="flex items-center">
-                    <Avatar className="h-10 w-10 mr-3">
-                      <AvatarFallback>
-                        {appointment.patientId.toString().substring(0, 2)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <div className="font-medium">Patient #{appointment.patientId}</div>
-                      <div className="text-sm text-gray-500">{appointment.reason}</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <div className="font-medium">{formatDate(appointment.date)}</div>
-                      <div className="text-sm text-gray-500">{formatTime(appointment.startTime)} - {formatTime(appointment.endTime)}</div>
-                    </div>
-                    <Button variant="outline" size="sm">
-                      Details
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="p-6 text-center text-gray-500">
-              <Calendar className="mx-auto h-12 w-12 text-gray-400 mb-2" />
-              <h3 className="font-medium text-lg mb-1">No upcoming appointments</h3>
-              <p className="text-gray-500">You don't have any appointments scheduled for the future.</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+              ) : (
+                <div className="text-muted-foreground">No appointments scheduled for today</div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {specialties.map(({ title, icon, specialty, count }) => (
+            <SpecialtyCard
+              key={specialty}
+              title={title}
+              icon={icon}
+              specialty={specialty}
+              count={count}
+            />
+          ))}
+        </div>
+      </div>
     </MainLayout>
   );
 }

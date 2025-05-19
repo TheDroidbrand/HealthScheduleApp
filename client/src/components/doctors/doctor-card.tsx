@@ -1,104 +1,104 @@
 import { useState } from "react";
-import { Doctor } from "@shared/schema";
 import { AppointmentForm } from "@/components/appointments/appointment-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Star, StarHalf } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Star, StarHalf, GraduationCap, Languages } from "lucide-react";
+import { FirebaseDoctor } from "@/types/firebase";
+import { useQuery } from "@tanstack/react-query";
+import { userService } from "@/lib/firebase-service";
 
 interface DoctorCardProps {
-  doctor: Doctor;
+  doctor: FirebaseDoctor;
 }
 
 export function DoctorCard({ doctor }: DoctorCardProps) {
   const [showAppointmentModal, setShowAppointmentModal] = useState(false);
   
-  // Example time slots - in a real app these would come from the doctor's schedule
-  const timeSlots = [
-    "Today, 2:30 PM",
-    "Today, 4:15 PM",
-    "Tomorrow, 9:00 AM",
-    "Tomorrow, 11:30 AM"
-  ];
+  // Fetch doctor's user data to get their full name
+  const { data: userData } = useQuery({
+    queryKey: ["user", doctor.userId],
+    queryFn: () => userService.getCurrentUser(doctor.userId),
+  });
+
+  // Get doctor's full name from either the doctor data or user data
+  const doctorFullName = doctor.fullName || userData?.fullName || "Doctor";
 
   return (
     <>
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="p-5 border-b">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center">
-              <Avatar className="h-16 w-16 mr-4">
-                <AvatarImage src={doctor.avatarUrl || ""} alt={`Dr. ${doctor.id}`} />
-                <AvatarFallback>DR</AvatarFallback>
+          <div className="flex items-start justify-between">
+            <div className="flex items-center space-x-4">
+              <Avatar className="h-16 w-16">
+                <AvatarImage src={doctor.avatarUrl || ""} alt={doctorFullName} />
+                <AvatarFallback>
+                  {doctorFullName.split(" ").map((n) => n[0]).join("")}
+                </AvatarFallback>
               </Avatar>
               <div>
-                <h3 className="text-lg font-semibold">Dr. Sarah Johnson</h3>
-                <p className="text-primary-700 font-medium">{doctor.specialty}</p>
+                <h3 className="text-lg font-semibold">Dr. {doctorFullName}</h3>
+                <p className="text-sm text-muted-foreground">{doctor.specialty}</p>
                 <div className="flex items-center mt-1">
-                  <div className="flex">
-                    {[...Array(4)].map((_, i) => (
-                      <Star key={i} className="h-4 w-4 text-amber-400 fill-current" />
-                    ))}
-                    <StarHalf className="h-4 w-4 text-amber-400 fill-current" />
+                  <div className="flex items-center">
+                    <Star className="h-4 w-4 text-yellow-400 fill-yellow-400" />
+                    <Star className="h-4 w-4 text-yellow-400 fill-yellow-400" />
+                    <Star className="h-4 w-4 text-yellow-400 fill-yellow-400" />
+                    <Star className="h-4 w-4 text-yellow-400 fill-yellow-400" />
+                    <StarHalf className="h-4 w-4 text-yellow-400 fill-yellow-400" />
                   </div>
-                  <span className="ml-1 text-sm text-gray-500">4.7 (128 reviews)</span>
+                  <span className="text-sm text-muted-foreground ml-2">
+                    {doctor.rating || 4.5} ({doctor.reviewCount || 0} reviews)
+                  </span>
                 </div>
               </div>
             </div>
-            <div className="mt-4 sm:mt-0">
-              <Button onClick={() => setShowAppointmentModal(true)}>
-                Book Appointment
-              </Button>
+            <Button onClick={() => setShowAppointmentModal(true)}>
+              Book Appointment
+            </Button>
+          </div>
+        </div>
+
+        <div className="p-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <h4 className="font-medium mb-2">Education</h4>
+              <div className="flex items-center text-sm text-muted-foreground">
+                <GraduationCap className="h-4 w-4 mr-2" />
+                {doctor.education || "Not specified"}
+              </div>
+            </div>
+            <div>
+              <h4 className="font-medium mb-2">Languages</h4>
+              <div className="flex items-center text-sm text-muted-foreground">
+                <Languages className="h-4 w-4 mr-2" />
+                {doctor.languages || "English"}
+              </div>
             </div>
           </div>
-        </div>
-        <div className="px-5 py-4 bg-gray-50">
-          <div className="flex flex-wrap gap-2">
-            <Badge variant="outline" className="bg-green-100 text-green-800 hover:bg-green-100 border-green-200">
-              <span className="mr-1.5 h-2 w-2 rounded-full bg-green-500"></span>
-              Available today
-            </Badge>
-            <Badge variant="outline" className="bg-blue-100 text-blue-800 hover:bg-blue-100 border-blue-200">
-              Shortest wait time
-            </Badge>
-            <Badge variant="outline" className="bg-gray-100 text-gray-800 hover:bg-gray-100 border-gray-200">
-              English, Spanish
-            </Badge>
-          </div>
-        </div>
-        <div className="p-5">
-          <h4 className="font-medium mb-2">About</h4>
-          <p className="text-sm text-gray-600 mb-4">
-            {doctor.bio || "No bio available"}
-          </p>
-          
-          <h4 className="font-medium mb-2">Next Available Slots</h4>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">
-            {timeSlots.map((slot, index) => (
-              <Button 
-                key={index} 
-                variant="outline" 
-                className="text-sm justify-center"
-                onClick={() => setShowAppointmentModal(true)}
-              >
-                {slot}
-              </Button>
-            ))}
-          </div>
-          <Button variant="link" className="p-0 h-auto">
-            See more available times
-          </Button>
+
+          {doctor.bio && (
+            <div className="mt-4">
+              <h4 className="font-medium mb-2">About</h4>
+              <p className="text-sm text-muted-foreground">{doctor.bio}</p>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Appointment Booking Modal */}
       <Dialog open={showAppointmentModal} onOpenChange={setShowAppointmentModal}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle>Book Appointment with Dr. Sarah Johnson</DialogTitle>
+            <DialogTitle>Book Appointment with Dr. {doctorFullName}</DialogTitle>
+            <DialogDescription>
+              Select a date and time for your appointment
+            </DialogDescription>
           </DialogHeader>
-          <AppointmentForm doctorId={doctor.id} onSuccess={() => setShowAppointmentModal(false)} />
+          <AppointmentForm
+            doctorId={doctor.id}
+            onSuccess={() => setShowAppointmentModal(false)}
+          />
         </DialogContent>
       </Dialog>
     </>

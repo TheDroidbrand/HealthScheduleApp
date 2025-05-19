@@ -23,7 +23,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ open, onClose }: SidebarProps) {
-  const { user, logoutMutation } = useAuth();
+  const { user, logout } = useAuth();
   const [location] = useLocation();
   const isMobile = useMobile();
 
@@ -31,8 +31,13 @@ export function Sidebar({ open, onClose }: SidebarProps) {
     return location === path;
   };
 
-  const handleLogout = () => {
-    logoutMutation.mutate();
+  const handleLogout = async () => {
+    try {
+      await logout();
+      // The router will handle the redirect to /auth
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
   };
 
   const sidebarItemClass = (path: string) => {
@@ -44,10 +49,10 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
   const patientLinks = [
     { path: "/", label: "Dashboard", icon: <LayoutDashboard className="mr-3 h-5 w-5" /> },
-    { path: "/doctors", label: "Find Doctors", icon: <Users className="mr-3 h-5 w-5" /> },
-    { path: "/appointments", label: "My Appointments", icon: <CalendarCheck className="mr-3 h-5 w-5" /> },
-    { path: "/medical-records", label: "Medical Records", icon: <FileText className="mr-3 h-5 w-5" /> },
-    { path: "/profile", label: "Profile", icon: <UserCog className="mr-3 h-5 w-5" /> },
+    { path: "/patient/doctors", label: "Find Doctors", icon: <Users className="mr-3 h-5 w-5" /> },
+    { path: "/patient/appointments", label: "My Appointments", icon: <CalendarCheck className="mr-3 h-5 w-5" /> },
+    { path: "/patient/medical-records", label: "Medical Records", icon: <FileText className="mr-3 h-5 w-5" /> },
+    { path: "/patient/profile", label: "Profile", icon: <UserCog className="mr-3 h-5 w-5" /> },
   ];
 
   const doctorLinks = [
@@ -100,10 +105,10 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             <div className="space-y-1">
               {adminLinks.map((link) => (
                 <Link key={link.path} href={link.path}>
-                  <a className={sidebarItemClass(link.path)} onClick={isMobile ? onClose : undefined}>
+                  <div className={sidebarItemClass(link.path)} onClick={isMobile ? onClose : undefined}>
                     {link.icon}
                     {link.label}
-                  </a>
+                  </div>
                 </Link>
               ))}
             </div>
@@ -111,10 +116,10 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             <div className="space-y-1">
               {doctorLinks.map((link) => (
                 <Link key={link.path} href={link.path}>
-                  <a className={sidebarItemClass(link.path)} onClick={isMobile ? onClose : undefined}>
+                  <div className={sidebarItemClass(link.path)} onClick={isMobile ? onClose : undefined}>
                     {link.icon}
                     {link.label}
-                  </a>
+                  </div>
                 </Link>
               ))}
             </div>
@@ -122,10 +127,10 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             <div className="space-y-1">
               {patientLinks.map((link) => (
                 <Link key={link.path} href={link.path}>
-                  <a className={sidebarItemClass(link.path)} onClick={isMobile ? onClose : undefined}>
+                  <div className={sidebarItemClass(link.path)} onClick={isMobile ? onClose : undefined}>
                     {link.icon}
                     {link.label}
-                  </a>
+                  </div>
                 </Link>
               ))}
             </div>
@@ -136,22 +141,22 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               {user?.role === "patient" && (
                 <>
                   <Link href="/admin">
-                    <a 
+                    <div 
                       className="flex items-center px-4 py-2.5 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100"
                       onClick={isMobile ? onClose : undefined}
                     >
                       <User className="mr-3 h-5 w-5" />
                       Switch to Admin View
-                    </a>
+                    </div>
                   </Link>
                   <Link href="/doctor">
-                    <a 
+                    <div 
                       className="flex items-center px-4 py-2.5 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100"
                       onClick={isMobile ? onClose : undefined}
                     >
                       <User className="mr-3 h-5 w-5" />
                       Switch to Doctor View
-                    </a>
+                    </div>
                   </Link>
                 </>
               )}
@@ -159,22 +164,22 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               {user?.role === "admin" && (
                 <>
                   <Link href="/">
-                    <a 
+                    <div 
                       className="flex items-center px-4 py-2.5 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100"
                       onClick={isMobile ? onClose : undefined}
                     >
                       <User className="mr-3 h-5 w-5" />
                       Switch to Patient View
-                    </a>
+                    </div>
                   </Link>
                   <Link href="/doctor">
-                    <a 
+                    <div 
                       className="flex items-center px-4 py-2.5 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100"
                       onClick={isMobile ? onClose : undefined}
                     >
                       <User className="mr-3 h-5 w-5" />
                       Switch to Doctor View
-                    </a>
+                    </div>
                   </Link>
                 </>
               )}
@@ -182,34 +187,33 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               {user?.role === "doctor" && (
                 <>
                   <Link href="/">
-                    <a 
+                    <div 
                       className="flex items-center px-4 py-2.5 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100"
                       onClick={isMobile ? onClose : undefined}
                     >
                       <User className="mr-3 h-5 w-5" />
                       Switch to Patient View
-                    </a>
+                    </div>
                   </Link>
                   <Link href="/admin">
-                    <a 
+                    <div 
                       className="flex items-center px-4 py-2.5 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100"
                       onClick={isMobile ? onClose : undefined}
                     >
                       <User className="mr-3 h-5 w-5" />
                       Switch to Admin View
-                    </a>
+                    </div>
                   </Link>
                 </>
               )}
               
-              <Button 
-                variant="ghost" 
-                className="w-full justify-start px-4 py-2.5 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100"
+              <button
                 onClick={handleLogout}
+                className="flex items-center w-full px-4 py-2.5 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100"
               >
                 <LogOut className="mr-3 h-5 w-5" />
                 Logout
-              </Button>
+              </button>
             </div>
           </div>
         </nav>
