@@ -3,73 +3,98 @@ import { db } from '@/lib/firebase';
 import { FirebaseMedicalRecord } from '@/types/firebase';
 
 export const medicalRecordService = {
-  async getDoctorRecords(doctorId: string): Promise<FirebaseMedicalRecord[]> {
-    console.log('Fetching medical records for doctor:', doctorId);
-    if (!doctorId) {
-      console.warn('No doctor ID provided');
-      return [];
-    }
-
+  async getPatientRecords(patientId: string): Promise<FirebaseMedicalRecord[]> {
     try {
-      const q = query(
-        collection(db, 'medicalRecords'),
-        where('doctorId', '==', doctorId),
-        orderBy('createdAt', 'desc')
-      );
-      const querySnapshot = await getDocs(q);
-      const records = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt || new Date().toISOString(),
-        updatedAt: doc.data().updatedAt || new Date().toISOString()
-      })) as FirebaseMedicalRecord[];
+      console.log('Fetching medical records for patient:', patientId);
       
-      console.log('Found medical records:', records);
+      if (!patientId) {
+        console.error('No patient ID provided');
+        return [];
+      }
+
+      const recordsQuery = query(
+        collection(db, "medicalRecords"),
+        where("patientId", "==", patientId),
+        orderBy("createdAt", "desc")
+      );
+
+      console.log('Executing Firestore query...');
+      const recordsSnapshot = await getDocs(recordsQuery);
+      console.log('Query returned', recordsSnapshot.size, 'records');
+
+      const records = recordsSnapshot.docs.map((doc) => {
+        const data = doc.data();
+        console.log('Record data:', data);
+        return {
+          id: doc.id,
+          ...data,
+          date: data.date || data.createdAt, // Ensure we have a date field
+          prescription: data.prescription || '', // Ensure we have a prescription field
+        } as FirebaseMedicalRecord;
+      });
+
+      console.log('Processed records:', records);
       return records;
     } catch (error) {
-      console.error('Error fetching medical records:', error);
+      console.error('Error fetching patient medical records:', error);
       throw error;
     }
   },
 
-  async getPatientRecords(patientId: string): Promise<FirebaseMedicalRecord[]> {
-    if (!patientId) {
-      console.warn('No patient ID provided');
-      return [];
-    }
-
+  async getDoctorMedicalRecords(doctorId: string): Promise<FirebaseMedicalRecord[]> {
     try {
-      const q = query(
-        collection(db, 'medicalRecords'),
-        where('patientId', '==', patientId),
-        orderBy('createdAt', 'desc')
+      console.log('Fetching medical records for doctor:', doctorId);
+      
+      if (!doctorId) {
+        console.error('No doctor ID provided');
+        return [];
+      }
+
+      const recordsQuery = query(
+        collection(db, "medicalRecords"),
+        where("doctorId", "==", doctorId),
+        orderBy("createdAt", "desc")
       );
-      const querySnapshot = await getDocs(q);
-      return querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt || new Date().toISOString(),
-        updatedAt: doc.data().updatedAt || new Date().toISOString()
-      })) as FirebaseMedicalRecord[];
+
+      console.log('Executing Firestore query...');
+      const recordsSnapshot = await getDocs(recordsQuery);
+      console.log('Query returned', recordsSnapshot.size, 'records');
+
+      const records = recordsSnapshot.docs.map((doc) => {
+        const data = doc.data();
+        console.log('Record data:', data);
+        return {
+          id: doc.id,
+          ...data,
+          date: data.date || data.createdAt, // Ensure we have a date field
+          prescription: data.prescription || '', // Ensure we have a prescription field
+        } as FirebaseMedicalRecord;
+      });
+
+      console.log('Processed records:', records);
+      return records;
     } catch (error) {
-      console.error('Error fetching patient records:', error);
+      console.error('Error fetching doctor medical records:', error);
       throw error;
     }
   },
 
   async createMedicalRecord(record: Omit<FirebaseMedicalRecord, 'id'>): Promise<FirebaseMedicalRecord> {
-    console.log('Creating medical record:', record);
-    if (!record.doctorId || !record.patientId) {
-      throw new Error('Doctor ID and Patient ID are required');
-    }
-
     try {
+      console.log('Creating medical record:', record);
+      
+      if (!record.doctorId || !record.patientId) {
+        throw new Error('Doctor ID and Patient ID are required');
+      }
+
       const now = Timestamp.now();
       const docRef = await addDoc(collection(db, 'medicalRecords'), {
         ...record,
+        date: record.date || now.toDate().toISOString(),
         createdAt: now.toDate().toISOString(),
         updatedAt: now.toDate().toISOString()
       });
+
       const newRecord = { id: docRef.id, ...record };
       console.log('Created medical record:', newRecord);
       return newRecord;

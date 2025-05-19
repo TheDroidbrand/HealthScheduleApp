@@ -18,7 +18,9 @@ export default function PatientDashboard() {
     queryKey: ["appointments", user?.id],
     queryFn: () => appointmentService.getPatientAppointments(user?.id || ""),
     enabled: !!user?.id,
-    refetchInterval: 5000, // Refetch every 5 seconds to get new appointments
+    refetchInterval: 30000, // Refetch every 30 seconds instead of 5
+    staleTime: 15000, // Consider data fresh for 15 seconds
+    gcTime: 5 * 60 * 1000, // Keep data in cache for 5 minutes
   });
 
   const { data: doctors = [] } = useQuery<FirebaseDoctor[]>({
@@ -26,24 +28,28 @@ export default function PatientDashboard() {
     queryFn: () => userService.getAllDoctors(),
   });
 
-  // Filter appointments by status
-  const upcomingAppointments = appointments.filter(
-    (appointment) => {
+  // Filter appointments by status and date
+  const upcomingAppointments = (appointments || []).filter(
+    (appointment: FirebaseAppointment) => {
       const appointmentDate = new Date(appointment.date);
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      return appointmentDate >= today && appointment.status !== "cancelled";
+      return appointmentDate >= today && 
+             appointment.status !== "completed" && 
+             appointment.status !== "cancelled";
     }
-  ).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  ).sort((a: FirebaseAppointment, b: FirebaseAppointment) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-  const pastAppointments = appointments.filter(
-    (appointment) => {
+  const pastAppointments = (appointments || []).filter(
+    (appointment: FirebaseAppointment) => {
       const appointmentDate = new Date(appointment.date);
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      return appointmentDate < today || appointment.status === "cancelled";
+      return appointmentDate < today || 
+             appointment.status === "completed" || 
+             appointment.status === "cancelled";
     }
-  ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  ).sort((a: FirebaseAppointment, b: FirebaseAppointment) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const getStatusBadge = (status: string) => {
     switch (status) {
