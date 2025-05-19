@@ -85,47 +85,11 @@ export default function DoctorSchedule() {
     },
   });
 
-  // Fetch doctor profile
-  const { data: doctorProfile, isLoading: isLoadingProfile } = useQuery<FirebaseDoctor>({
-    queryKey: ["doctor", user?.id],
-    queryFn: () => userService.getDoctorByUserId(user?.id || ""),
-    enabled: !!user?.id,
-  });
-
-  // Create doctor profile if it doesn't exist
-  const createProfileMutation = useMutation({
-    mutationFn: async () => {
-      if (!user) throw new Error("No user found");
-      return userService.createDoctor({
-        userId: user.id,
-        fullName: user.fullName || "Dr. " + user.email?.split("@")[0] || "Unknown",
-        specialty: "General Medicine", // Default specialty
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["doctor", user?.id] });
-      toast({
-        title: "Profile created",
-        description: "Your doctor profile has been created successfully.",
-        variant: "default",
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Failed to create profile",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Fetch doctor's schedules
+  // Fetch doctor's schedules directly using user ID
   const { data: schedules, isLoading: isLoadingSchedules } = useQuery<FirebaseSchedule[]>({
-    queryKey: ["schedules", doctorProfile?.id],
-    queryFn: () => scheduleService.getDoctorSchedules(doctorProfile?.id || ""),
-    enabled: !!doctorProfile?.id,
+    queryKey: ["schedules", user?.id],
+    queryFn: () => scheduleService.getDoctorSchedules(user?.id || ""),
+    enabled: !!user?.id
   });
 
   // Update or create schedule mutation
@@ -140,7 +104,7 @@ export default function DoctorSchedule() {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["schedules", doctorProfile?.id] });
+      queryClient.invalidateQueries({ queryKey: ["schedules", user?.id] });
       setShowEditDialog(false);
       toast({
         title: currentSchedule?.id ? "Schedule updated" : "Schedule created",
@@ -190,18 +154,13 @@ export default function DoctorSchedule() {
   };
 
   const handleCreateSchedule = (dayOfWeek: string) => {
-    if (!doctorProfile) {
-      createProfileMutation.mutate();
-      return;
-    }
-
     const parsedDay = parseInt(dayOfWeek);
     setCurrentSchedule({
       dayOfWeek: parsedDay,
       startTime: "09:00:00",
       endTime: "17:00:00",
       isAvailable: true,
-      doctorId: doctorProfile.id
+      doctorId: user?.id
     });
     
     form.reset({
@@ -215,17 +174,12 @@ export default function DoctorSchedule() {
   };
 
   const onSubmit = (data: FormValues) => {
-    if (!doctorProfile) {
-      createProfileMutation.mutate();
-      return;
-    }
-    
     const scheduleData = {
       dayOfWeek: parseInt(data.dayOfWeek),
       startTime: `${data.startTime}:00`,
       endTime: `${data.endTime}:00`,
       isAvailable: data.isAvailable,
-      doctorId: doctorProfile.id,
+      doctorId: user?.id,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -236,32 +190,12 @@ export default function DoctorSchedule() {
     });
   };
 
-  if (isLoadingProfile) {
+  if (isLoadingSchedules) {
     return (
       <MainLayout title="My Schedule">
         <div className="flex justify-center items-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
         </div>
-      </MainLayout>
-    );
-  }
-
-  if (!doctorProfile) {
-    return (
-      <MainLayout title="My Schedule">
-        <Card>
-          <CardHeader>
-            <CardTitle>Create Your Profile</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-muted-foreground mb-4">
-              You need to create your doctor profile before you can set your schedule.
-            </p>
-            <Button onClick={() => createProfileMutation.mutate()}>
-              Create Profile
-            </Button>
-          </CardContent>
-        </Card>
       </MainLayout>
     );
   }
@@ -273,80 +207,74 @@ export default function DoctorSchedule() {
           <CardTitle className="text-lg font-semibold">Weekly Schedule</CardTitle>
         </CardHeader>
         <CardContent className="p-5">
-          {isLoadingSchedules ? (
-            <div className="flex justify-center p-8">
-              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-7 gap-4">
-                {schedulesByDay.map(({ dayOfWeek, schedule }) => (
-                  <div
-                    key={dayOfWeek.value}
-                    className="bg-white rounded-lg border p-4 h-full flex flex-col"
-                  >
-                    <div className="font-medium text-center mb-3">{dayOfWeek.label}</div>
-                    {schedule ? (
-                      <div className="flex-grow">
-                        <div className="text-center mb-2">
-                          {schedule.isAvailable ? (
-                            <div className="text-green-600 font-medium">Available</div>
-                          ) : (
-                            <div className="text-gray-500 font-medium">Off</div>
-                          )}
-                        </div>
-                        {schedule.isAvailable && (
-                          <div className="text-center text-gray-600 mb-4">
-                            <Clock className="inline-block h-4 w-4 mr-1" />
-                            {schedule.startTime.substring(0, 5)} - {schedule.endTime.substring(0, 5)}
-                          </div>
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-7 gap-4">
+              {schedulesByDay.map(({ dayOfWeek, schedule }) => (
+                <div
+                  key={dayOfWeek.value}
+                  className="bg-white rounded-lg border p-4 h-full flex flex-col"
+                >
+                  <div className="font-medium text-center mb-3">{dayOfWeek.label}</div>
+                  {schedule ? (
+                    <div className="flex-grow">
+                      <div className="text-center mb-2">
+                        {schedule.isAvailable ? (
+                          <div className="text-green-600 font-medium">Available</div>
+                        ) : (
+                          <div className="text-gray-500 font-medium">Off</div>
                         )}
-                        <div className="flex justify-center mt-auto">
-                          <Button
-                            onClick={() => handleEditSchedule(schedule)}
-                            variant="outline"
-                            size="sm"
-                            className="w-full"
-                          >
-                            Edit
-                          </Button>
-                        </div>
                       </div>
-                    ) : (
-                      <div className="flex flex-col items-center justify-between flex-grow">
-                        <div className="text-center text-gray-500 mb-4">
-                          <Calendar className="mx-auto h-8 w-8 text-gray-400 mb-2" />
-                          <p>No schedule set</p>
+                      {schedule.isAvailable && (
+                        <div className="text-center text-gray-600 mb-4">
+                          <Clock className="inline-block h-4 w-4 mr-1" />
+                          {schedule.startTime.substring(0, 5)} - {schedule.endTime.substring(0, 5)}
                         </div>
+                      )}
+                      <div className="flex justify-center mt-auto">
                         <Button
-                          onClick={() => handleCreateSchedule(dayOfWeek.value)}
+                          onClick={() => handleEditSchedule(schedule)}
                           variant="outline"
                           size="sm"
                           className="w-full"
                         >
-                          Add Hours
+                          Edit
                         </Button>
                       </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-between flex-grow">
+                      <div className="text-center text-gray-500 mb-4">
+                        <Calendar className="mx-auto h-8 w-8 text-gray-400 mb-2" />
+                        <p>No schedule set</p>
+                      </div>
+                      <Button
+                        onClick={() => handleCreateSchedule(dayOfWeek.value)}
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                      >
+                        Add Hours
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
 
-              <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                <div className="flex items-start">
-                  <AlertTriangle className="h-5 w-5 text-blue-500 mr-3 mt-0.5" />
-                  <div>
-                    <h4 className="font-medium text-blue-700 mb-1">Important Note</h4>
-                    <p className="text-blue-600 text-sm">
-                      Changes to your schedule will only affect future appointments. Any existing appointments 
-                      will not be automatically cancelled. Please update patients directly if you need to cancel 
-                      or reschedule existing appointments.
-                    </p>
-                  </div>
+            <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+              <div className="flex items-start">
+                <AlertTriangle className="h-5 w-5 text-blue-500 mr-3 mt-0.5" />
+                <div>
+                  <h4 className="font-medium text-blue-700 mb-1">Important Note</h4>
+                  <p className="text-blue-600 text-sm">
+                    Changes to your schedule will only affect future appointments. Any existing appointments 
+                    will not be automatically cancelled. Please update patients directly if you need to cancel 
+                    or reschedule existing appointments.
+                  </p>
                 </div>
               </div>
             </div>
-          )}
+          </div>
         </CardContent>
       </Card>
 

@@ -28,15 +28,27 @@ export default function DoctorDashboard() {
     queryFn: () => userService.getAllDoctors(),
   });
 
+  // Filter appointments by status and date
   const upcomingAppointments = appointments?.filter(
-    (appointment) => new Date(appointment.date) > new Date()
+    (appointment) => 
+      new Date(appointment.date) > new Date() && 
+      appointment.status !== "completed" && 
+      appointment.status !== "cancelled"
   ) || [];
 
   const todayAppointments = appointments?.filter(
     (appointment) =>
       format(new Date(appointment.date), "yyyy-MM-dd") ===
-      format(new Date(), "yyyy-MM-dd")
+      format(new Date(), "yyyy-MM-dd") &&
+      appointment.status !== "completed" &&
+      appointment.status !== "cancelled"
   ) || [];
+
+  const completedAppointments = appointments?.filter(
+    (appointment) => 
+      appointment.status === "completed" || 
+      appointment.status === "cancelled"
+  ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()) || [];
 
   const nextAppointment = upcomingAppointments[0];
 
@@ -66,7 +78,7 @@ export default function DoctorDashboard() {
               <Link href="/doctor/appointments">View All Appointments</Link>
             </Button>
             <Button asChild>
-              <Link href="/doctor/patients">View Patients</Link>
+              <Link href="/doctor/medical-records">View Patients</Link>
             </Button>
           </div>
         </div>

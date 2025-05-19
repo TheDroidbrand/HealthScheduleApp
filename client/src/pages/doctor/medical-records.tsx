@@ -307,7 +307,7 @@ export default function DoctorMedicalRecords() {
             <TabsList>
               <TabsTrigger value="all">All Records</TabsTrigger>
               <TabsTrigger value="patient" disabled={!selectedPatientId}>
-                {selectedPatientId ? `Patient #${selectedPatientId}` : "Select Patient"}
+                {selectedPatientId ? patientNameMap[selectedPatientId] || "Select Patient" : "Select Patient"}
               </TabsTrigger>
             </TabsList>
           </Tabs>
